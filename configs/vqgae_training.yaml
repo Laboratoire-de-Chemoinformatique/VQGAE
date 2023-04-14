@@ -1,0 +1,51 @@
+seed_everything: 42
+trainer:
+  logger: 
+      class_path: pytorch_lightning.loggers.CSVLogger
+      init_args:
+          save_dir: logs/
+          name: vqgae_stable
+          version: 1 
+  gradient_clip_val: 1.0
+  accelerator: 'gpu'
+  devices: [0]
+  max_epochs: 100
+  log_every_n_steps: 1000
+  precision: 16
+  detect_anomaly: false
+model:
+  max_atoms: 51
+  batch_size: 500
+  num_conv_layers: 5
+  vector_dim: 512
+  num_mha_layers: 8
+  num_agg_layers: 2
+  num_heads_encoder: 16
+  num_heads_decoder: 16
+  dropout: 0.2
+  bias: true
+  init_values: 0.0005
+  lr: 0.0002
+  task: train
+  conv_type: GCN
+  shuffle_graph: false
+  sparse_vq: true
+  use_permuter: false
+  debug: false
+  reparam: false
+data:
+  path_train_predict: chembl_train.sdf
+  path_train_properties: chembl_train_properties.npz
+  path_val: chembl_val.sdf
+  path_val_properties: chembl_val_properties.npz
+  tmp_folder: tmp/chembl
+  num_workers: 0
+  pin_memory: True
+  drop_last: True
+vqgae_lr_monitor:
+  logging_interval: epoch
+vqgae_model_checkpoint:
+  dirpath: weights/
+  filename: ${trainer.logger.init_args.name}
+  monitor: train_loss
+  mode: min
