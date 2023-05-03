@@ -1,7 +1,7 @@
 import click
 import torch
 import yaml
-from collection import defaultdict
+from collections import defaultdict
 from CGRtools.containers import MoleculeContainer
 from torch_geometric.utils import degree
 
@@ -24,6 +24,8 @@ training_config = {
         "detect_anomaly": False,
     },
     "model": {
+        "max_atoms": 51,
+        "batch_size": 500,
         "num_conv_layers": 5,
         "vector_dim": 512,
         "num_mha_layers": 8,
@@ -31,29 +33,35 @@ training_config = {
         "num_heads_encoder": 16,
         "num_heads_decoder": 16,
         "dropout": 0.2,
+        "vq_embeddings": 4096,
         "bias": True,
         "init_values": 0.0001,
         "lr": 0.0002,
         "task": "train",
-        "conv_type": "GCN",
         "shuffle_graph": False,
-        "sparse_vq": True,
-        "use_permuter": False,
         "positional_bias": False,
-        "debug": False,
-        "reparam": False
+        "reparam": False,
+        "class_categories": [38, 29, 21, 25, 16, 13, 50, 13]
     },
     "data": {
-        "path_train_predict": "/home/.../train.sdf",
-        "path_train_properties": "/home/.../train_properties.npz",
-        "path_val": "/home/.../val.sdf",
-        "path_val_properties": "/home/.../val_properties.npz",
-        "tmp_folder": "/home/.../tmp",
-        "max_atoms": 51,
-        "batch_size": 500,
+        "path_train_predict": "/home/.../chembl_train.sdf",
+        "path_val": "/home/.../chembl_val.sdf",
+        "tmp_folder": "/home/.../tmp/",
+        "tmp_name": "chembl",
         "num_workers": 0,
         "pin_memory": True,
         "drop_last": True,
+        "properties_names": {
+            "Heavy Atom Count": "class",
+            "Hetero Atom Count": "class",
+            "acceptorcount": "class",
+            "donorcount": "class",
+            "Chiral center count": "class",
+            "Ring count": "class",
+            "Hetero ring count": "class",
+            "Rotatable bond count": "class",
+            "Aromatic ring count": "class"
+        }
     },
     "vqgae_lr_monitor": {
         "logging_interval": "epoch",
@@ -130,6 +138,7 @@ def write_svm(index, vector, file):
             file.write(f' {j + 1}:{vector[j]}')
     file.write(f' {num_columns + 1}:{vector[num_columns]}\n')
 
+
 def write_svm_cb(index, codebook_indices, mol_size, file):
     file.write(str(index))
     for i, val in codebook_indices.items():
@@ -144,6 +153,7 @@ def pna_deg_stats(dataset):
         d = degree(data.edge_index[1].long(), num_nodes=data.num_nodes, dtype=torch.long)
         deg += torch.bincount(d, minlength=deg.numel())
     return deg
+
 
 def convert_codebook_indices(cb_vecs, mol_sizes):
     canon_order_inds = []

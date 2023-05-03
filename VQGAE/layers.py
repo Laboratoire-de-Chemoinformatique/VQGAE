@@ -218,13 +218,11 @@ class LayerScaleBlock(Module):
 class GraphEmbedding(Module):
     def __init__(
             self,
-            max_atoms,
-            vector_dim,
-            batch,
-            bias=True,
-            num_conv_layers=5,
-            deg=None,
-            conv_type="GCN",
+            max_atoms: int,
+            vector_dim: int,
+            batch: int,
+            bias: bool = True,
+            num_conv_layers: int = 5,
             *args,
             **kwargs
     ):
@@ -232,31 +230,12 @@ class GraphEmbedding(Module):
         self.max_atoms = max_atoms
         self.batch = batch
         self.expansion = Linear(11, vector_dim, bias)
-        if conv_type == "GCN":
-            self.gcn_convs = ModuleList(
-                [
-                    GCNConv(vector_dim, vector_dim, improved=True)
-                    for _ in range(num_conv_layers)
-                ]
-            )
-        elif conv_type == "PNA":
-            assert deg is not None
-            aggregators = ["mean", "min", "max", "std"]
-            scalers = ["identity"]
-            self.gcn_convs = ModuleList(
-                [
-                    PNAConv(
-                        vector_dim,
-                        vector_dim,
-                        aggregators=aggregators,
-                        scalers=scalers,
-                        deg=deg,
-                    )
-                    for _ in range(num_conv_layers)
-                ]
-            )
-        else:
-            raise NotImplementedError("The specified convolution is not implemented")
+        self.gcn_convs = ModuleList(
+            [
+                GCNConv(vector_dim, vector_dim, improved=True)
+                for _ in range(num_conv_layers)
+            ]
+        )
 
     def forward(self, atoms, connections, batch):
         atoms = torch.log(atoms + 1)
@@ -319,8 +298,6 @@ class VQGraphAggregation(Module):
     def forward(self, atoms_vectors, graph_sizes):
         batch, _, _ = atoms_vectors.shape
         summed_vector = torch.sum(atoms_vectors, 1, keepdim=True)
-        # graph_sizes = graph_sizes.view(graph_sizes.shape[0], 1, 1)
-        # summed_vector /= graph_sizes
         atoms_vectors = torch.cat((summed_vector, atoms_vectors), 1)
         for layer in self.self_attention:
             atoms_vectors = layer(atoms_vectors)
@@ -339,26 +316,22 @@ class VQEncoder(Module):
             num_conv_layers: int = 5,
             num_agg_layers: int = 2,
             bias: bool = True,
-            deg=None,
             dropout=0.1,
             init_values=1e-4,
-            aggregation=False,
-            conv_type="GCN",
+            class_aggregation=False,
             *args,
             **kwargs
     ):
         super(VQEncoder, self).__init__(*args, **kwargs)
         self.graph_embedding = GraphEmbedding(
-            max_atoms,
-            vector_dim,
-            batch_size,
-            bias,
-            num_conv_layers,
-            deg,
-            conv_type=conv_type,
+            max_atoms=max_atoms,
+            vector_dim=vector_dim,
+            batch=batch_size,
+            bias=bias,
+            num_conv_layers=num_conv_layers
         )
-        self.aggregation = aggregation
-        if self.aggregation:
+        self.class_aggregation = class_aggregation
+        if self.class_aggregation:
             self.graph_aggregation = VQGraphAggregation(
                 vector_dim=vector_dim,
                 num_heads=num_heads,
@@ -372,10 +345,8 @@ class VQEncoder(Module):
         atoms_embeddings, sparsity_mask = self.graph_embedding(
             atoms, connections, graph.batch
         )
-        if self.aggregation:
-            atoms_vectors, feature_vector = self.graph_aggregation(
-                atoms_embeddings, mol_sizes
-            )
+        if self.class_aggregation:
+            atoms_vectors, feature_vector = self.graph_aggregation(atoms_embeddings, mol_sizes)
         else:
             atoms_vectors = atoms_embeddings
             feature_vector = torch.sum(atoms_embeddings, axis=-2)
@@ -394,65 +365,37 @@ class VQDecoder(Module):
             dropout: float = 0.1,
             init_values: float = 1e-4,
             positional_bias=False,
-            bidirectional=False,
             *args,
             **kwargs
     ):
         super(VQDecoder, self).__init__(*args, **kwargs)
         self.positional_bias = positional_bias
-        self.bidirectional = bidirectional
         if self.positional_bias:
             self.graph_bias = nn.Parameter(
-                torch.zeros(
-                    (
-                        1,
-                        max_atoms,
-                        vector_dim,
-                    )
-                ),
+                torch.zeros((1, max_atoms, vector_dim,)),
                 requires_grad=True,
             )
         else:
-            bi_dim_coef = 1
-            if bidirectional:
-                bi_dim_coef = 2
-            self.rnn = GRU(vector_dim, vector_dim, bidirectional=bidirectional)
+            self.rnn = GRU(vector_dim, vector_dim)
             self.gamma_rnn = Parameter(
-                init_values * torch.ones((bi_dim_coef * vector_dim,)),
+                init_values * torch.ones((vector_dim,)),
                 requires_grad=True,
             )
-            self.self_attention = ModuleList(
-                [
-                    LayerScaleBlock(
-                        bi_dim_coef * vector_dim,
-                        num_heads,
-                        drop=dropout,
-                        init_values=init_values,
-                    )
-                    for _ in range(num_mha_layers)
-                ]
-            )
-            self.graph_reconstruction = GraphReconstruction(
-                max_atoms, bi_dim_coef * vector_dim, bias
-            )
+            self.self_attention = ModuleList([
+                LayerScaleBlock(vector_dim, num_heads, drop=dropout, init_values=init_values,)
+                for _ in range(num_mha_layers)
+            ])
+            self.graph_reconstruction = GraphReconstruction(max_atoms, vector_dim, bias)
             self.rnn_dropout = Dropout(dropout)
 
-    def forward(self, atoms_vectors: torch.Tensor, atoms_mask=None):
+    def forward(self, atoms_vectors: torch.Tensor):
         if self.positional_bias:
             repeated_graph_bias = self.graph_bias.expand(atoms_vectors.shape[0], -1, -1)
             atoms_vectors += repeated_graph_bias
         else:
             ordered_vectors, _ = self.rnn(atoms_vectors.permute(1, 0, 2))
             ordered_vectors = ordered_vectors.permute(1, 0, 2)
-            if self.bidirectional:
-                doubled_vectors = torch.concat([atoms_vectors, atoms_vectors], dim=-1)
-                atoms_vectors = doubled_vectors + self.gamma_rnn * self.rnn_dropout(
-                    ordered_vectors
-                )
-            else:
-                atoms_vectors = atoms_vectors + self.gamma_rnn * self.rnn_dropout(
-                    ordered_vectors
-                )
+            atoms_vectors = atoms_vectors + self.gamma_rnn * self.rnn_dropout(ordered_vectors)
         for layer in self.self_attention:
             atoms_vectors = layer(atoms_vectors)
         p_atoms, p_bonds = self.graph_reconstruction(atoms_vectors)
@@ -464,7 +407,6 @@ class VectorQuantizer(Module):
     Reference:
     [1] https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py
     """
-
     def __init__(
             self,
             num_embeddings: int,
@@ -508,9 +450,7 @@ class VectorQuantizer(Module):
         )
 
         _, codebook_ind = (-dist).max(1)
-        codebook_onehot = functional.one_hot(codebook_ind, self.n_embed).type(
-            latents.dtype
-        )
+        codebook_onehot = functional.one_hot(codebook_ind, self.n_embed).type(latents.dtype)
         codebook_ind = codebook_ind.view(*latents.shape[:-1])
         quantize = self.embed_code(codebook_ind)
         quantize = latents + (quantize - latents).detach()

@@ -1,5 +1,6 @@
 import os.path as osp
 from abc import ABC
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -143,7 +144,6 @@ def generate_true_vector_2(molecule: MoleculeContainer, atoms_types: tuple):
     molecule.
 
     :param molecule: The molecule to be used for training
-    :param max_atoms: the maximum number of atoms in the molecule
     :param atoms_types: tuple of tuples, each tuple contains the atomic symbol and the charge of the
     atom
     :return: A vector of integers, where each integer is the index of the atom type in the atoms_types
@@ -155,28 +155,28 @@ def generate_true_vector_2(molecule: MoleculeContainer, atoms_types: tuple):
     return y_true
 
 
-def preprocess_molecules(file, max_atoms, properties_file=None, meta_name_y=None):
+def preprocess_molecules(file, max_atoms, properties_names=None):
     """
-    Given a molecule, it generates a pytorch geometric graph object, a one-hot encoded vector of the
-    atoms, and a matrix of the bonds.
-    :param meta_name_y: name of y value in meta of molecule object in SDF file
-    :param file: path to the SDF file
-    :param max_atoms: The maximum number of atoms in the molecule
-    :param properties_file: The .NPZ file containing two arrays with molecular structural properties for classification and
-    regression tasks
-    :return: None
+    Given a molecule, generates a PyTorch Geometric graph object, a one-hot encoded vector of the atoms, and a
+    matrix of the bonds.
+
+    :param file: (str) Path to the SDF file.
+    :param max_atoms: (int) The maximum number of atoms in the molecule.
+    :param properties_names: (dict) A dictionary of property names and their corresponding tasks ('class' or 'reg').
+    :return: A PyTorch Geometric graph object.
+
+    :raises ValueError: If the molecule size is bigger than the defined maximum.
     """
     accepted_atoms = ('C', 'N', 'S', 'O', 'Se', 'F', 'Cl', 'Br', 'I', 'B', 'P', 'Si')
     atoms_types = (('C', 0), ('S', 0), ('Se', 0), ('F', 0), ('Cl', 0), ('Br', 0),
                    ('I', 0), ('B', 0), ('P', 0), ('Si', 0), ('O', 0), ('O', -1), ('N', 0), ('N', 1), ('N', -1))
     mendel_info = calc_atoms_info(accepted_atoms)
-    if properties_file:
-        class_properties = torch.from_numpy(np.load(properties_file)['arr_0'])
-        regression_properties = torch.from_numpy(np.load(properties_file)['arr_1'])
     with SDFRead(file, indexable=True) as inp:
         inp.reset_index()
+        class_categories = {}
         for n, molecule in tqdm(enumerate(inp), total=len(inp)):
-
+            class_properties = []
+            regression_properties = []
             if len(molecule) >= max_atoms:
                 raise ValueError('Found molecule with size bigger than defined')
 
@@ -189,20 +189,25 @@ def preprocess_molecules(file, max_atoms, properties_file=None, meta_name_y=None
 
             mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule), mendel_info), dtype=torch.int8)
             mol_atoms_y = torch.tensor(generate_true_vector_2(molecule, atoms_types), dtype=torch.int8)
-            if meta_name_y:
-                if meta_name_y in molecule.meta.keys():
-                    y = float(molecule.meta[meta_name_y])
-                else:
-                    y = 0
-                mol_pyg_graph = Data(x=mol_atoms_x, edge_index=mol_adj.t().contiguous(), edge_attr=edge_attr,
-                                     atoms_types=mol_atoms_y, y=y)
-            elif properties_file:
-                mol_pyg_graph = Data(x=mol_atoms_x, edge_index=mol_adj.t().contiguous(), edge_attr=edge_attr,
-                                     atoms_types=mol_atoms_y, class_prop=class_properties[n],
-                                     reg_prop=regression_properties[n])
-            else:
-                mol_pyg_graph = Data(x=mol_atoms_x, edge_index=mol_adj.t().contiguous(), edge_attr=edge_attr,
-                                     atoms_types=mol_atoms_y)
+            if properties_names:
+                for mn, task in properties_names.items():
+                    prop = molecule.meta[mn]
+                    if task == "class":
+                        class_properties.append(int(prop))
+                    elif task == "reg":
+                        regression_properties.append(float(prop))
+                    else:
+                        raise ValueError(f"I don't know this task: {task}")
+            class_properties = torch.tensor(class_properties, dtype=torch.int8)
+            regression_properties = torch.tensor(class_properties, dtype=torch.float32)
+            mol_pyg_graph = Data(
+                x=mol_atoms_x,
+                edge_index=mol_adj.t().contiguous(),
+                edge_attr=edge_attr,
+                atoms_types=mol_atoms_y,
+                class_prop=class_properties,
+                reg_prop=regression_properties
+            )
 
             mol_pyg_graph = ToUndirected()(mol_pyg_graph)
             assert mol_pyg_graph.is_undirected()
@@ -210,13 +215,12 @@ def preprocess_molecules(file, max_atoms, properties_file=None, meta_name_y=None
 
 
 class MolDataset(InMemoryDataset, ABC):
-    def __init__(self, max_atoms, molecules_file, properties_file=None, processed_path=None, meta_name_y=None):
+    def __init__(self, max_atoms, molecules_file, properties_names=None, processed_path=None):
         super().__init__(None, None, None)
         self.max_atoms = max_atoms
         self.processed_path = processed_path
         self.molecules_file = molecules_file
-        self.properties_file = properties_file
-        self.meta_name_y = meta_name_y
+        self.properties_names = properties_names
         if processed_path and osp.exists(processed_path):
             self.data, self.slices = torch.load(self.processed_path)
             print(f"Loaded preprocessed data from {processed_path}")
@@ -225,8 +229,7 @@ class MolDataset(InMemoryDataset, ABC):
             print(f"Data from {molecules_file} is preprocessed")
 
     def prepare(self):
-        processed_data = list(preprocess_molecules(self.molecules_file, self.max_atoms,
-                                                   self.properties_file, self.meta_name_y))
+        processed_data = list(preprocess_molecules(self.molecules_file, self.max_atoms, self.properties_names))
         data, slices = self.collate(processed_data)
         if self.processed_path:
             torch.save((data, slices), self.processed_path)
@@ -243,30 +246,28 @@ class VQGAEData(LightningDataset, LightningDataModule):
             num_workers: int = 0,
             pin_memory: bool = False,
             drop_last: bool = False,
-            path_train_properties: str = None,
             path_val: str = None,
-            path_val_properties: str = None,
             tmp_folder: str = None,
-            meta_name_y: str = None,
-
+            tmp_name: str = None,
+            properties_names: dict = None
     ):
         train_tmp_file = None
         val_tmp_file = None
         encode_tmp_file = None
         self.batch_size = batch_size
         if tmp_folder:
-            train_tmp_file = tmp_folder + "_train.pt"
-            val_tmp_file = tmp_folder + "_val.pt"
-            encode_tmp_file = tmp_folder + "_encode.pt"
+            tmp_folder = Path(tmp_folder)
+            assert tmp_folder.exists()
+            train_tmp_file = tmp_folder.joinpath(f"{tmp_name}_train.pt")
+            val_tmp_file = tmp_folder.joinpath(f"{tmp_name}_val.pt")
+            encode_tmp_file = tmp_folder.joinpath(f"{tmp_name}_encode.pt")
 
         val_dataset = None
         if path_val:
-            train_dataset = MolDataset(max_atoms, path_train_predict, path_train_properties, train_tmp_file,
-                                       meta_name_y)
-            val_dataset = MolDataset(max_atoms, path_val, path_val_properties, val_tmp_file, meta_name_y)
+            train_dataset = MolDataset(max_atoms, path_train_predict, properties_names, train_tmp_file)
+            val_dataset = MolDataset(max_atoms, path_val, properties_names, val_tmp_file)
         else:
-            train_dataset = MolDataset(max_atoms, path_train_predict, path_train_properties, encode_tmp_file,
-                                       meta_name_y)
+            train_dataset = MolDataset(max_atoms, path_train_predict, properties_names, encode_tmp_file)
 
         super().__init__(
             train_dataset=train_dataset,
@@ -286,8 +287,8 @@ class VQGAEVectors(LightningDataModule):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
-        indeces = torch.from_numpy(np.load(input_file)["arr_0"])
-        self.dataset = TensorDataset(indeces)
+        indices = torch.from_numpy(np.load(input_file)["arr_0"])
+        self.dataset = TensorDataset(indices)
 
     def predict_dataloader(self) -> DataLoader:
         return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False)

@@ -1,43 +1,59 @@
-# VQGAE
+# Vector Quantized Graph-based AutoEncoder (VQGAE)
 
-This repository is official implementation of Vector Quantized Graph-based AutoEncoder (VQGAE).
-This tool is in active development, therefore API can be changed.
+This repository is official implementation of Vector Quantized Graph-based AutoEncoder.
+
+## :construction: Warning :construction:
+
+This repository is under active development. Soon we will upload all models, weights, datasets etc.
+
+### TO-DO tasks before the stable release:
+
+- [x] First version of the code
+- [ ] Add links to figshare for datasets, weights and statistics
+- [ ] Add trained models to HuggingFace
+- [ ] Add ordering network
+- [ ] Add inverse QSAR with genetic algorithm 
+- [ ] Add tutorials in jupyter/colab
+- [ ] Update documentation for VQGAE
 
 ## Installation
 
-This tool depends on the pytorch, pytorch-geometric and pytorch-lightning packages. If you want to use GPU,
-then you need to specify NVIDIA GPU driver version during installation.
-Therefore, we provide to instructions to install the VQGAE package with CPU-only and GPU versions.
+This tool depends on the pytorch, pytorch-geometric and pytorch-lightning packages. 
+If you want to use GPU, then you need to manually specify NVIDIA GPU driver version during installation. 
+Therefore, we provide to instructions to install the VQGAE package with conda and manually.
 
-In case you don't have administrator (sudo) permissions on your machine, then usage of miniconda or mambaforge package manager is
-highly advised.
+### Conda installation (recommended)
 
-### Prerequesties
+Here we specify installation with conda/mamba. 
+First, you can create a new enviroment using `conda-lock.yml` file:
 
-The installation is based on a [Poetry package manager](https://python-poetry.org/docs/). It can be installed
-directly on the machine or using conda package manager.
+```bash
+conda env create --name vqgae_env --file conda-lock.yml
+```
+Alternatively you can use `vqgae_gpu.yml` file (only if the first option fails):
 
-Here we specify installation with conda:
+```bash
+conda env create --name vqgae_env --file vqgae_gpu.yml
+```
+Then, you should activate the created enviroment, download repository and install VQGAE:
 
-`conda create -n vqgae -c conda-forge "python<3.11" "poetry>1.4"`
+```bash
+conda activate vqgae_env
+git clone https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git
+cd vqgae/
+pip install .
+```
 
-When enviroment is created and activated (e.g. `conda activate vqgae`),
-clone the repository of GTMtools from UniStra GitLab:
+### Manual installation
 
-`git clone https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git`
+If drivers on your NVIDIA machine does not match with the ones used in enviroment, 
+you can manually install all required packages.
+(Currently, we used Pytorch for CUDA 11.8 while drivers were already version of 12.0 and it worked fine)
 
-go inside the folder `cd vqgae/`
+First, check your GPU driver version with `nvcc` or `nvidia-smi`.
 
-and run `poetry install` to install the package and basic dependencies.
-
-However, this is not the end. Next is pytorch installation and packages dependent on it.
-
-### Pytorch GPU installation
-
-First, check your GPU driver version with nvcc or nvidia-smi.
-
-In case you haven't installed cudatoolkit drivers, and it requires administrator permissions that you don't have,
-the only way to install is conda manager:
+In case you haven't installed cudatoolkit drivers, and it requires administrator permissions whic you might not have,
+the only way to install is pytorch GPU version is with conda:
 
 `conda install pytorch cudatoolkit=${CUDAVERSION} -c pytorch -c conda-forge -y`
 
@@ -64,7 +80,7 @@ version of installed pytorch (1.11.0, 1.12.0). For more details please, check th
 
 Finally, install pytorch-lightning and adabelief optimizer:
 
-`pip install "pytorch-lightning>1.7.2" "adabelief-pytorch>=0.2.1"`
+`pip install "pytorch-lightning>2.0" "adabelief-pytorch>=0.2.1"`
 
 ## Example usage
 
@@ -74,14 +90,22 @@ The tool work in command line mode. For the training you can simply run:
 vqgae_train fit -c configs/vqgae_training.yaml
 ```
 
+For the encoding you should run the following command:
+
 ```bash
 vqgae_encode predict -c configs/vqgae_encode.yaml
 ```
+
+And for the decoding you should run the following command:
 
 ```bash
 vqgae_decode predict -c configs/vqgae_decode.yaml
 ```
 
+Also, if you want to create an example of default config, simply run:
+```bash
+vqgae_default_config --task train
+```
 
 ## Contributing
 
@@ -96,6 +120,22 @@ To contribute with code to the project, follow these steps:
 3. Make your changes and commit them: `git commit -m '<commit_message>'`
 4. Push to the remote branch: `git push`
 5. Create the pull request.
+
+## Citation
+
+Please make sure to cite this work if you find it useful:
+
+```bibtex
+@article{akhmetshin2023construction,
+  title={Construction of order-independent molecular fragments space with vector quantised graph autoencoder},
+  author={Akhmetshin, Timur and Lin, Albert and Madzhidov, Timur and Varnek, Alexandre},
+  journal={ChemRxiv},
+  publisher={Cambridge Open Engage},
+  year={2023},
+  note={This content is a preprint and has not been peer-reviewed.},
+  doi={10.26434/chemrxiv-2023-5zmvw}
+}
+```
 
 ## Copyright
 

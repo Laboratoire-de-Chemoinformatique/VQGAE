@@ -11,11 +11,15 @@ from torch_geometric.utils import to_dense_batch, to_dense_adj
 from .layers import bonds_masking, VectorQuantizer, VQEncoder, VQDecoder, MultiTargetClassifier
 from .metrics import ReconstructionRate, BondsError
 from .metrics import compute_atoms_states_loss, compute_bonds_loss_v2
-from .utils import convert_codebook_indices
 
 
 class BaseAutoEncoder(pl.LightningModule):
-    def __init__(self, batch_size: int = 512, lr: float = 2e-4, task='train'):
+    def __init__(
+            self,
+            batch_size: int = 512,
+            lr: float = 2e-4,
+            task='train'
+    ):
         super(BaseAutoEncoder, self).__init__()
         self.task = task
         self.batch_size = batch_size
@@ -28,7 +32,7 @@ class BaseAutoEncoder(pl.LightningModule):
         self.val_rec_rate = ReconstructionRate()
 
     def forward(self, batch):
-        if self.task in ['train', 'reconstruct', 'tune_decoder']:
+        if self.task == 'reconstruct':
             return self.reconstruct(batch)
         elif self.task == 'encode':
             return self.encode(batch)
@@ -39,9 +43,6 @@ class BaseAutoEncoder(pl.LightningModule):
         raise NotImplementedError
 
     def encode(self, batch):
-        raise NotImplementedError
-
-    def node_embeddings(self, batch):
         raise NotImplementedError
 
     def decode(self, batch):
@@ -86,38 +87,74 @@ class BaseAutoEncoder(pl.LightningModule):
 
 
 class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
-    def __init__(self, batch_size: int, max_atoms: int, num_conv_layers: int, vector_dim: int,
-                 num_mha_layers: int, num_agg_layers: int, num_heads_encoder: int, num_heads_decoder: int,
-                 dropout: float, bias: bool = True, init_values=1e-4, lr: float = 2e-4, deg=None, task='train',
-                 conv_type='GCN', shuffle_graph=False, sparse_vq=True, positional_bias=False,
-                 debug=False, reparam=False):
+    def __init__(
+            self,
+            max_atoms: int,
+            batch_size: int,
+            num_conv_layers: int,
+            vector_dim: int,
+            num_mha_layers: int,
+            num_agg_layers: int,
+            num_heads_encoder: int,
+            num_heads_decoder: int,
+            dropout: float,
+            vq_embeddings: int = 4096,
+            bias: bool = True,
+            init_values=1e-4,
+            lr: float = 2e-4,
+            task: str = 'train',
+            shuffle_graph: bool = False,
+            positional_bias: bool = False,
+            reparam: bool = False,
+            class_categories: list = None
+    ):
+        """
+        Initializes the VQGAE model.
+
+        :param max_atoms: (int) Maximum number of atoms in a molecule
+        :param batch_size: (int) Number of molecules in a batch
+        :param num_conv_layers: (int) Number of convolutional layers in the encoder
+        :param vector_dim: (int) Dimensionality of the latent space vectors
+        :param num_mha_layers: (int) Number of multi-head attention layers in the decoder
+        :param num_agg_layers: (int) Number of aggregation layers in the encoder
+        :param num_heads_encoder: (int) Number of heads in the multi-head attention in the encoder
+        :param num_heads_decoder: (int) Number of heads in the multi-head attention in the decoder
+        :param dropout: (float) Dropout rate
+        :param vq_embeddings: (int) Number of embeddings in the vector quantizer
+        :param bias: (bool) Whether to include bias in the convolutional and linear layers
+        :param init_values: (float) Initial value for the LayerScale
+        :param lr: (float) Learning rate
+        :param task: (str) Task type, either 'train', 'reconstruct', 'encode' or 'decode'
+        :param shuffle_graph: (bool) Whether to shuffle the order of atoms in the input graph before decoding
+        :param positional_bias: (bool) Whether to include positional bias in the multi-head attention layers
+        :param reparam: (bool) Whether to use the reparameterization trick on feauture vector
+        :param class_categories: (list) List of number of categories for the multi-target classification task
+        """
         super(VQGAE, self).__init__()
         self.save_hyperparameters()
-        self.reparam = reparam
-        self.debug = debug
-        self.task = task
-        self.lr = lr
+
         self.max_atoms = max_atoms
         self.batch_size = batch_size
+        self.lr = lr
+        self.task = task
         self.shuffle_graph = shuffle_graph
-        self.sparse_vq = sparse_vq
+        self.reparam = reparam
+
         self.encoder = VQEncoder(max_atoms, vector_dim, batch_size, num_heads_encoder, num_conv_layers,
-                                 num_agg_layers, bias, deg, dropout, init_values, aggregation=True, conv_type=conv_type)
-        if task == 'tune_decoder':
-            self.vq = VectorQuantizer(num_embeddings=4096, embedding_dim=vector_dim, tune=True)
-        else:
-            self.vq = VectorQuantizer(num_embeddings=4096, embedding_dim=vector_dim)
+                                 num_agg_layers, bias, dropout, init_values, class_aggregation=True)
+        self.vq = VectorQuantizer(num_embeddings=vq_embeddings, embedding_dim=vector_dim)
         self.decoder = VQDecoder(max_atoms, vector_dim, num_heads_decoder, num_mha_layers, bias,
                                  dropout, init_values, positional_bias=positional_bias)
-        self.property_classifier = MultiTargetClassifier(vector_dim, [38, 29, 21, 25, 16, 13, 50, 13])
+        self.property_classifier = MultiTargetClassifier(vector_dim, class_categories)
+
         if self.reparam:
             self.mu_lin = Linear(vector_dim, vector_dim)
             self.logvar_lin = Linear(vector_dim, vector_dim)
+
         self.train_bonds_error = BondsError()
         self.val_bonds_error = BondsError()
         self.train_rec_rate = ReconstructionRate()
         self.val_rec_rate = ReconstructionRate()
-        self.prints = True
 
     def reconstruct(self, batch):
         mol_graph = batch
@@ -126,32 +163,11 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         p_atoms, p_bonds = self.decoder(atoms_vectors)
         return p_atoms, p_bonds
 
-    def encode(self, batch):
-        mol_graph = batch
-
-        t_atoms, atoms_mask = to_dense_batch(mol_graph.atoms_types.long(), mol_graph.batch,
-                                             max_num_nodes=self.max_atoms, batch_size=self.batch_size)
-        mol_sizes = torch.sum(atoms_mask, dim=-1)
-
-        atoms_vectors, feature_vector, sparsity_mask = self.encoder(mol_graph, mol_sizes)
-        _, _, last_dim = atoms_vectors.shape
-        if self.sparse_vq:
-            sparsity_mask = torch.unsqueeze(sparsity_mask.view(-1), -1)
-            atoms_vectors = atoms_vectors.reshape(-1, last_dim)
-            atoms_vectors = torch.masked_select(atoms_vectors, sparsity_mask).reshape(-1, last_dim)
-
+    def encode(self, mol_graph):
+        mol_sizes = torch.bincount(mol_graph.batch)
+        atoms_vectors, feature_vector, _ = self.encoder(mol_graph, mol_sizes)
         atoms_vectors, _, codebook_inds = self.vq(atoms_vectors)
-
-        if self.sparse_vq:
-            atoms_vectors, _ = to_dense_batch(atoms_vectors, mol_graph.batch,
-                                              max_num_nodes=self.max_atoms, batch_size=self.batch_size)
-            codebook_inds, _ = to_dense_batch(codebook_inds, mol_graph.batch,
-                                              max_num_nodes=self.max_atoms, batch_size=self.batch_size)
-
-        codebook_inds = codebook_inds.cpu().numpy()
-        cb_inds = convert_codebook_indices(codebook_inds, mol_sizes)
-
-        return atoms_vectors, feature_vector, cb_inds
+        return atoms_vectors, feature_vector, codebook_inds
 
     def decode(self, batch):
         indices = batch[0].long()
@@ -165,19 +181,36 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
 
     def reparameterize(self, latents):
         """
-        Reparameterization trick to sample from N(mu, var) from
-        N(0,1).
-        :param mu: (Tensor) Mean of the latent Gaussian [B x D]
-        :param logvar: (Tensor) Standard deviation of the latent Gaussian [B x D]
-        :return: (Tensor) [B x D]
+        Reparameterization trick to sample from N(mu, var) from N(0,1).
+
+        :param latents: (Tensor) Latent tensor [B x D]
+
+        :return:
+            - mu (Tensor): Mean of the latent Gaussian [B x D]
+            - logvar (Tensor): Standard deviation of the latent Gaussian [B x D]
+            - (Tensor): [B x D] tensor sampled from the Gaussian distribution N(mu, var)
         """
+
         mu = self.mu_lin(latents)
         logvar = self.logvar_lin(latents)
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
+
         return mu, logvar, eps * std + mu
 
     def _get_reconstruction_loss(self, batch, step, batch_idx):
+        """
+        Computes the reconstruction loss for a batch of molecules.
+
+        :param batch: Batch of molecules in PytorchGeometric format
+        :param step: (str) Step type, either 'train' or 'val'
+        :param batch_idx: (int) Index of the batch
+
+        :return:
+            - metrics (dict): Dictionary of metrics for the batch
+        """
+
+        # preparation of masks and true vectors
         mol_graph = batch
         t_atoms, atoms_mask = to_dense_batch(mol_graph.atoms_types.long(), mol_graph.batch,
                                              max_num_nodes=self.max_atoms, batch_size=self.batch_size)
@@ -189,25 +222,18 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         adjs_mask = bonds_masking(atoms_mask)
         mol_sizes = torch.sum(atoms_mask, dim=-1)
 
-        atoms_vectors, latents, sparsity_mask = self.encoder(mol_graph, mol_sizes)
-        _, _, last_dim = atoms_vectors.shape
-        if self.sparse_vq:
-            sparsity_mask = torch.unsqueeze(sparsity_mask.view(-1), -1)
-            atoms_vectors = atoms_vectors.reshape(-1, last_dim)
-            atoms_vectors = torch.masked_select(atoms_vectors, sparsity_mask).reshape(-1, last_dim)
-
+        # encoding
+        atoms_vectors, latents, _ = self.encoder(mol_graph, mol_sizes)
         atoms_vectors, vq_loss, _ = self.vq(atoms_vectors)
 
+        # shuffle order of atoms before the decoding
         if self.shuffle_graph:
             t_atoms, t_bonds, atoms_vectors = _shuffle_graph(mol_sizes, t_atoms, t_bonds, atoms_vectors)
 
-        if self.sparse_vq:
-            atoms_vectors, _ = to_dense_batch(atoms_vectors, mol_graph.batch,
-                                              max_num_nodes=self.max_atoms, batch_size=self.batch_size)
+        # decoding
+        p_atoms, p_bonds = self.decoder(atoms_vectors)
 
-
-        p_atoms, p_bonds = self.decoder(atoms_vectors, atoms_mask)
-
+        # reconstruction loss computation
         atoms_loss = compute_atoms_states_loss(p_atoms, t_atoms, atoms_mask, mol_sizes)
         bonds_loss = compute_bonds_loss_v2(p_bonds, t_bonds, adjs_mask, mol_sizes)
 
@@ -215,14 +241,16 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
             mu, log_var, latents = self.reparameterize(latents)
             kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0)
 
+        # property loss computation
         property_loss = torch.zeros_like(atoms_loss, device=atoms_loss.device)
         class_properties = self.property_classifier(latents)
         true_properties = mol_graph.class_prop.view(-1, 8).long()
         for n, pred_prop in enumerate(class_properties):
             class_loss = cross_entropy(pred_prop, true_properties[:, n] + 1, reduction='none')
             property_loss += class_loss
-        loss = atoms_loss + bonds_loss + torch.tensor(0.05, device=property_loss.device) * property_loss
 
+        # full loss computation
+        loss = atoms_loss + bonds_loss + torch.tensor(0.05, device=property_loss.device) * property_loss
         loss = torch.mean(loss) + torch.tensor(0.5, device=vq_loss.device) * vq_loss
 
         if self.reparam:

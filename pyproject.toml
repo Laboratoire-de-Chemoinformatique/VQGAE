@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "vqgae"
-version = "0.0.1"
+version = "0.0.2"
 description = "Official implementation of VQGAE architecture"
 authors = ["Laboratoire de Chemoinformatique <tagirshin@gmail.com>"]
 license = "MIT"
@@ -13,21 +13,21 @@ packages = [
 python = ">=3.8,<3.12"
 cgrtools = ">=4.1.34"
 py-mini-racer = ">=0.6"
-altair = ">=4.2"
 mendeleev = ">=0.10"
 omegaconf = ">=2.2"
 tqdm = ">=4.64"
-ipykernel = ">=6.15"
 click = ">=8.1"
 jsonargparse = { version = ">=4.12.0", extras = ["signatures"] }
+adabelief-pytorch = "0.2.1"
+pygad = ">=3.0"
+pony = ">=0.7"
 
 [build-system]
 requires = ["poetry_core>=1.4.0"]
 build-backend = "poetry.core.masonry.api"
 
-#TODO: add interfaces to the VQGAE
 [tool.poetry.scripts]
-vqgae_train = "vqgae.pipelines.train:training_interface"
-vqgae_encode = "vqgae.pipelines.encode:encoding_interface"
-vqgae_decode = "vqgae.pipelines.encode:decoding_interface"
+vqgae_train = "vqgae.cli:training_interface"
+vqgae_encode = "vqgae.cli:encoding_interface"
+vqgae_decode = "vqgae.cli:decoding_interface"
 vqgae_default_config = "vqgae.utils:vqgae_default_config"

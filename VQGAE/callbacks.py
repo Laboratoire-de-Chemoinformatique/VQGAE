@@ -59,7 +59,9 @@ class EncoderPredictionsWriter(BasePredictionWriter, ABC):
             self.write_file(prediction)
 
     def write_on_batch_end(self, trainer, pl_module, prediction, batch_indices, batch, batch_idx, dataloader_idx):
-        encoder_prediction = (prediction[1].cpu().numpy(), prediction[2].cpu().numpy(),)
+        feature_vector = prediction[1].cpu().numpy()
+        codebook_inds = prediction[2].cpu().numpy()
+        encoder_prediction = (feature_vector, codebook_inds)
         if self.chunk_size > 1:
             self.tmp.append(encoder_prediction)
             if len(self.tmp) % self.chunk_size == 0:
