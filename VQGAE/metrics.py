@@ -8,7 +8,7 @@ from torch.nn.functional import (
 from torchmetrics import Metric
 
 
-def compute_atoms_states_loss(pred, true, mask, length):
+def compute_atoms_loss(pred, true, mask, length):
     """
     Compute the cross entropy loss of the predicted states and true states.
 
@@ -40,30 +40,14 @@ def compute_adj_loss(pred_adj, true_adj, adj_mask, length):
     :param length: the length of the sequence
     :return: The loss is the average loss over all the nodes in the graph.
     """
-    result = binary_cross_entropy_with_logits(
-        pred_adj, true_adj.float(), reduction="none"
-    )
+    result = binary_cross_entropy_with_logits(pred_adj, true_adj.float(), reduction="none")
     masked_result = result * adj_mask
-    loss = torch.sum(
-        masked_result,
-        dim=(
-            1,
-            2,
-        ),
-    )
+    loss = torch.sum(masked_result, dim=(1, 2,),)
     loss /= length * 2
     return loss
 
 
 def compute_bonds_loss(pred_bonds, true_bonds, adj_mask, length):
-    result = cross_entropy(pred_bonds, true_bonds, reduction="none")
-    masked_result = result * adj_mask
-    loss = torch.sum(masked_result, dim=(1, 2))
-    loss /= length * 2
-    return loss
-
-
-def compute_bonds_loss_v2(pred_bonds, true_bonds, adj_mask, length):
     true_bonds = one_hot(true_bonds, 4).float().permute(0, 3, 1, 2)
     result = binary_cross_entropy_with_logits(pred_bonds, true_bonds, reduction="none")
     adj_mask = torch.unsqueeze(adj_mask, 1)

@@ -4,13 +4,14 @@ import pytorch_lightning as pl
 import torch
 from adabelief_pytorch import AdaBelief
 from torch.nn import Linear
-from torch.nn.functional import cross_entropy
+from torch.nn.functional import one_hot, cross_entropy, binary_cross_entropy_with_logits
+from torchmetrics.functional.classification import binary_f1_score, binary_recall, binary_accuracy, binary_specificity
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch_geometric.utils import to_dense_batch, to_dense_adj
 
-from .layers import bonds_masking, VectorQuantizer, VQEncoder, VQDecoder, MultiTargetClassifier
+from .layers import bonds_masking, VectorQuantizer, VQEncoder, VQDecoder, MultiTargetClassifier, ONN
 from .metrics import ReconstructionRate, BondsError
-from .metrics import compute_atoms_states_loss, compute_bonds_loss_v2
+from .metrics import compute_atoms_loss, compute_bonds_loss
 
 
 class BaseAutoEncoder(pl.LightningModule):
@@ -139,6 +140,7 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         self.task = task
         self.shuffle_graph = shuffle_graph
         self.reparam = reparam
+        self.num_categories = len(class_categories)
 
         self.encoder = VQEncoder(max_atoms, vector_dim, batch_size, num_heads_encoder, num_conv_layers,
                                  num_agg_layers, bias, dropout, init_values, class_aggregation=True)
@@ -166,7 +168,10 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
     def encode(self, mol_graph):
         mol_sizes = torch.bincount(mol_graph.batch)
         atoms_vectors, feature_vector, _ = self.encoder(mol_graph, mol_sizes)
+        batch, num_atoms, vec_dim = atoms_vectors.shape
+        atoms_vectors = atoms_vectors.reshape(-1, vec_dim)
         atoms_vectors, _, codebook_inds = self.vq(atoms_vectors)
+        atoms_vectors = atoms_vectors.reshape(batch, num_atoms, vec_dim)
         return atoms_vectors, feature_vector, codebook_inds
 
     def decode(self, batch):
@@ -224,7 +229,10 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
 
         # encoding
         atoms_vectors, latents, _ = self.encoder(mol_graph, mol_sizes)
+        batch, num_atoms, vec_dim = atoms_vectors.shape
+        atoms_vectors = atoms_vectors.reshape(-1, vec_dim)
         atoms_vectors, vq_loss, _ = self.vq(atoms_vectors)
+        atoms_vectors = atoms_vectors.reshape(batch, num_atoms, vec_dim)
 
         # shuffle order of atoms before the decoding
         if self.shuffle_graph:
@@ -234,8 +242,8 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         p_atoms, p_bonds = self.decoder(atoms_vectors)
 
         # reconstruction loss computation
-        atoms_loss = compute_atoms_states_loss(p_atoms, t_atoms, atoms_mask, mol_sizes)
-        bonds_loss = compute_bonds_loss_v2(p_bonds, t_bonds, adjs_mask, mol_sizes)
+        atoms_loss = compute_atoms_loss(p_atoms, t_atoms, atoms_mask, mol_sizes)
+        bonds_loss = compute_bonds_loss(p_bonds, t_bonds, adjs_mask, mol_sizes)
 
         if self.reparam:
             mu, log_var, latents = self.reparameterize(latents)
@@ -244,7 +252,7 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         # property loss computation
         property_loss = torch.zeros_like(atoms_loss, device=atoms_loss.device)
         class_properties = self.property_classifier(latents)
-        true_properties = mol_graph.class_prop.view(-1, 8).long()
+        true_properties = mol_graph.class_prop.view(-1, self.num_categories).long()
         for n, pred_prop in enumerate(class_properties):
             class_loss = cross_entropy(pred_prop, true_properties[:, n] + 1, reduction='none')
             property_loss += class_loss
@@ -276,6 +284,79 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
             metrics['kld_loss'] = kld_loss
 
         return metrics
+
+
+class OrderingNetwork(pl.LightningModule):
+    def __init__(
+            self,
+            mol_size,
+            batch_size,
+            num_embeddings: int,
+            embedding_dim: int = 128,
+            num_heads=8,
+            num_mha=4,
+            init_values=0.001,
+            dropout=0.2,
+            learning_rate=0.001
+    ):
+        super(OrderingNetwork, self).__init__()
+        self.save_hyperparameters()
+        self.batch_size = batch_size
+        self.predictor = ONN(mol_size, num_embeddings, embedding_dim, num_heads, num_mha, init_values, dropout)
+        self.lr = learning_rate
+
+    def forward(self, batch):
+        values, indices = torch.sort(batch[0], descending=True)
+        mask = torch.unsqueeze(torch.where(values > 0, 1, 0), -1).float()
+        pred_sort = self.predictor(values, mask)
+        pred_sort = torch.softmax(pred_sort, -1)
+        pred_sort = pred_sort * mask.permute(0, 2, 1)
+        return pred_sort
+
+    def _get_loss(self, batch):
+        values, indices = torch.sort(batch[0], descending=True)
+        mask = torch.unsqueeze(torch.where(values > 0, 1, 0), -1).float()
+        true_one_hot = one_hot(indices, num_classes=51) * mask
+        pred_sort = self.predictor(values, mask)
+        loss = binary_cross_entropy_with_logits(pred_sort, true_one_hot)
+        true_one_hot = true_one_hot.long()
+        f1 = binary_f1_score(pred_sort, true_one_hot)
+        ba = (binary_recall(pred_sort, true_one_hot) + \
+              binary_specificity(pred_sort, true_one_hot)) / 2
+        acc = binary_accuracy(pred_sort, true_one_hot)
+        metrics = {'loss': loss, 'f1': f1, "ba": ba, "acc": acc}
+        return metrics
+
+    def training_step(self, batch, batch_idx):
+        metrics = self._get_loss(batch)
+        for name, value in metrics.items():
+            self.log('train_' + name, value, prog_bar=True, on_step=True, on_epoch=True, batch_size=self.batch_size)
+        return metrics['loss']
+
+    def validation_step(self, batch, batch_idx):
+        metrics = self._get_loss(batch)
+        for name, value in metrics.items():
+            self.log('val_' + name, value, on_epoch=True, batch_size=self.batch_size)
+
+    def test_step(self, batch, batch_idx):
+        metrics = self._get_loss(batch)
+        for name, value in metrics.items():
+            self.log('test_' + name, value, on_epoch=True, batch_size=self.batch_size)
+
+    def configure_optimizers(self):
+        optimizer = AdaBelief(self.parameters(), lr=self.lr, eps=1e-16, betas=(0.9, 0.999),
+                              weight_decouple=True, rectify=True, weight_decay=0.01,
+                              print_change_log=False)
+
+        lr_scheduler = ReduceLROnPlateau(optimizer, patience=20, factor=0.8, min_lr=1e-5, verbose=True)
+        scheduler = {
+            'scheduler': lr_scheduler,
+            'interval': 'step',
+            'frequency': 1,
+            'reduce_on_plateau': False,
+            'monitor': 'val_loss'
+        }
+        return [optimizer], [scheduler]
 
 
 def _create_random_permutations(sizes, batch, max_atoms, device):

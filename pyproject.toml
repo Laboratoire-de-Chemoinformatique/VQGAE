@@ -6,7 +6,7 @@ authors = ["Laboratoire de Chemoinformatique <tagirshin@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 packages = [
-    { include = "vqgae", from = "." },
+    { include = "VQGAE", from = "." },
 ]
 
 [tool.poetry.dependencies]
@@ -27,7 +27,7 @@ requires = ["poetry_core>=1.4.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-vqgae_train = "vqgae.cli:training_interface"
-vqgae_encode = "vqgae.cli:encoding_interface"
-vqgae_decode = "vqgae.cli:decoding_interface"
-vqgae_default_config = "vqgae.utils:vqgae_default_config"
+vqgae_train = "VQGAE.cli:training_interface"
+vqgae_encode = "VQGAE.cli:encoding_interface"
+vqgae_decode = "VQGAE.cli:decoding_interface"
+vqgae_default_config = "VQGAE.utils:vqgae_default_config"

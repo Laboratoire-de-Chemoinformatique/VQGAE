@@ -3,9 +3,9 @@ trainer:
   logger: 
       class_path: pytorch_lightning.loggers.CSVLogger
       init_args:
-          save_dir: logs/
-          name: vqgae_stable
-          version: 1 
+          save_dir: vqgae/experiments/training/logs/
+          name: vqgae
+          version: 1
   gradient_clip_val: 1.0
   accelerator: 'gpu'
   devices: [0]
@@ -27,25 +27,32 @@ model:
   init_values: 0.0005
   lr: 0.0002
   task: train
-  conv_type: GCN
   shuffle_graph: false
-  sparse_vq: true
-  use_permuter: false
-  debug: false
+  positional_bias: false
   reparam: false
+  class_categories: [38, 29, 21, 25, 16, 13, 50, 13]
 data:
-  path_train_predict: chembl_train.sdf
-  path_train_properties: chembl_train_properties.npz
-  path_val: chembl_val.sdf
-  path_val_properties: chembl_val_properties.npz
-  tmp_folder: tmp/chembl
+  path_train_predict: data/chembl/bfs/final/chembl_train.sdf
+  path_val: data/chembl/bfs/final/chembl_val.sdf
+  tmp_folder: vqgae/experiments/training/tmp/
+  tmp_name: chembl
+  properties_names: {
+  "Hetero Atom Count": "class",
+  "acceptorcount": "class",
+  "donorcount": "class",
+  "Chiral center count": "class",
+  "Ring count": "class",
+  "Hetero ring count": "class",
+  "Rotatable bond count": "class",
+  "Aromatic ring count": "class",
+  }
   num_workers: 0
   pin_memory: True
   drop_last: True
 vqgae_lr_monitor:
   logging_interval: epoch
 vqgae_model_checkpoint:
-  dirpath: weights/
+  dirpath: vqgae/experiments/training/weights/
   filename: ${trainer.logger.init_args.name}
   monitor: train_loss
   mode: min

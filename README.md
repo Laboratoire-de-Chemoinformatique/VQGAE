@@ -25,7 +25,18 @@ Therefore, we provide to instructions to install the VQGAE package with conda an
 ### Conda installation (recommended)
 
 Here we specify installation with conda/mamba. 
-First, you can create a new enviroment using `conda-lock.yml` file:
+First, you should copy reposotiry from git
+
+```bash
+git clone https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git
+cd VQGAE/
+```
+If you haven't installed `conda-lock` package in your base enviroment, you can do it using the following command:
+```bash
+conda install --channel=conda-forge --name=base conda-lock
+```
+
+Then, you should create a new enviroment using `conda-lock.yml` file:
 
 ```bash
 conda env create --name vqgae_env --file conda-lock.yml
@@ -39,8 +50,6 @@ Then, you should activate the created enviroment, download repository and instal
 
 ```bash
 conda activate vqgae_env
-git clone https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git
-cd vqgae/
 pip install .
 ```
 
@@ -141,4 +150,5 @@ Please make sure to cite this work if you find it useful:
 
 * [Tagir Akhmetshin ](tagirshin@gmail.com)
 * [Arkadii Lin](arkadiyl18@gmail.com)
+* [Timur Madzhidov](tmadzhidov@gmail.com)
 * [Alexandre Varnek](varnek@unistra.fr)

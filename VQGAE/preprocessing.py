@@ -8,7 +8,7 @@ from CGRtools.containers import MoleculeContainer
 from CGRtools.files import SDFRead
 from mendeleev import element
 from pytorch_lightning import LightningDataModule
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, random_split
 from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.data.lightning import LightningDataset
 from torch_geometric.loader.dataloader import DataLoader as PYGDataLoader
@@ -173,7 +173,6 @@ def preprocess_molecules(file, max_atoms, properties_names=None):
     mendel_info = calc_atoms_info(accepted_atoms)
     with SDFRead(file, indexable=True) as inp:
         inp.reset_index()
-        class_categories = {}
         for n, molecule in tqdm(enumerate(inp), total=len(inp)):
             class_properties = []
             regression_properties = []
@@ -282,13 +281,36 @@ class VQGAEData(LightningDataset, LightningDataModule):
         return self.dataloader(self.train_dataset, shuffle=False, batch_size=self.batch_size)
 
 
-class VQGAEVectors(LightningDataModule):
-    def __init__(self, input_file, batch_size: int = 1, num_workers: int = 0):
-        super().__init__()
+class VQGAEVectors(LightningDataset, LightningDataModule):
+    def __init__(
+            self,
+            input_file,
+            batch_size: int = 1,
+            num_workers: int = 0,
+            pin_memory: bool = False,
+            drop_last: bool = False,
+            seed=42
+    ):
         self.batch_size = batch_size
         self.num_workers = num_workers
         indices = torch.from_numpy(np.load(input_file)["arr_0"])
         self.dataset = TensorDataset(indices)
+        train_size = int(0.8 * len(self.dataset))
+        val_size = len(self.dataset) - train_size
+        train_dataset, val_dataset = random_split(
+            self.dataset,
+            [train_size, val_size],
+            torch.Generator().manual_seed(seed)
+        )
+
+        super().__init__(
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=drop_last,
+        )
 
     def predict_dataloader(self) -> DataLoader:
         return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False)

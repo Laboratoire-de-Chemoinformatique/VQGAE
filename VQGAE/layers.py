@@ -11,9 +11,11 @@ from torch.nn import (
     GRU,
     Dropout,
     LayerNorm,
+    Embedding,
+    GELU
 )
 from torch.nn import functional
-from torch_geometric.nn.conv import GCNConv, PNAConv
+from torch_geometric.nn.conv import GCNConv
 from torch_geometric.utils import to_dense_batch
 
 
@@ -382,7 +384,7 @@ class VQDecoder(Module):
                 requires_grad=True,
             )
             self.self_attention = ModuleList([
-                LayerScaleBlock(vector_dim, num_heads, drop=dropout, init_values=init_values,)
+                LayerScaleBlock(vector_dim, num_heads, drop=dropout, init_values=init_values, )
                 for _ in range(num_mha_layers)
             ])
             self.graph_reconstruction = GraphReconstruction(max_atoms, vector_dim, bias)
@@ -407,6 +409,7 @@ class VectorQuantizer(Module):
     Reference:
     [1] https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py
     """
+
     def __init__(
             self,
             num_embeddings: int,
@@ -508,3 +511,44 @@ class PositionalEncoding(Module):
         x = x.permute(1, 0, 2)
         x = x + self.pe[: x.size(0)]
         return self.dropout(x).permute(1, 0, 2)
+
+
+class ONN(Module):
+    def __init__(
+            self,
+            mol_size: int,
+            num_embeddings: int,
+            embedding_dim: int = 128,
+            num_heads=8,
+            num_mha=2,
+            init_values=0.001,
+            dropout: float = 0.2,
+    ):
+        """
+        :param input_shape: shape of input vector
+        """
+        super().__init__()
+        self.emb = Embedding(num_embeddings, embedding_dim, padding_idx=0)
+        self.positional_encoding = Parameter(torch.empty((1, mol_size, embedding_dim)), requires_grad=True)
+        with torch.no_grad():
+            torch.nn.init.normal_(self.positional_encoding)
+        self.attentions = ModuleList([
+            LayerScaleBlock(
+                embedding_dim,
+                num_heads,
+                mlp_ratio=4.0,
+                qkv_bias=True,
+                act_layer=GELU,
+                init_values=init_values,
+                drop=dropout
+            ) for _ in range(num_mha)
+        ])
+        self.scorer = Linear(embedding_dim, 51)
+
+    def forward(self, inputs, mask):
+        x = self.emb(inputs) + self.positional_encoding
+        x = x * mask
+        for layer in self.attentions:
+            x = layer(x)
+        scores = self.scorer(x)
+        return scores
