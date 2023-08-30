@@ -57,7 +57,7 @@ def compute_bonds_loss(pred_bonds, true_bonds, adj_mask, length):
     return loss
 
 
-def compute_degree_loss(pred_adj, true_adj, atoms_mask, length):
+def compute_degree_loss(pred_adj, true_adj, atoms_mask):
     pred_degree = torch.sum(torch.sigmoid(pred_adj), dim=-1)
     one_hot_bonds = one_hot(true_adj, num_classes=4).permute(0, 3, 1, 2)
     true_degree = torch.sum(one_hot_bonds, dim=-1)
@@ -65,7 +65,6 @@ def compute_degree_loss(pred_adj, true_adj, atoms_mask, length):
     atoms_mask = torch.unsqueeze(atoms_mask, -2)
     masked_result = result * atoms_mask
     loss = torch.mean(masked_result, dim=(1, 2), keepdim=False)
-    # loss /= (length * 2)
     return loss
 
 
@@ -89,7 +88,7 @@ def compute_bonds_error(pred, target, mask):
     return error
 
 
-def compute_permutaion_loss(self, perm, mask, eps=10e-8):
+def compute_permutaion_loss(perm, mask, eps=10e-8):
     def entropy(p, axis, normalize=True, eps=10e-12):
         if normalize:
             p = p / (p.sum(axis=axis, keepdim=True) + eps)

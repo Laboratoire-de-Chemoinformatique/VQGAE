@@ -525,7 +525,6 @@ class ONN(Module):
             dropout: float = 0.2,
     ):
         """
-        :param input_shape: shape of input vector
         """
         super().__init__()
         self.emb = Embedding(num_embeddings, embedding_dim, padding_idx=0)
@@ -543,7 +542,7 @@ class ONN(Module):
                 drop=dropout
             ) for _ in range(num_mha)
         ])
-        self.scorer = Linear(embedding_dim, 51)
+        self.scorer = Linear(embedding_dim, mol_size)
 
     def forward(self, inputs, mask):
         x = self.emb(inputs) + self.positional_encoding

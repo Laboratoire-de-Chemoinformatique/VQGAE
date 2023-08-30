@@ -9,10 +9,10 @@ This repository is under active development. Soon we will upload all models, wei
 ### TO-DO tasks before the stable release:
 
 - [x] First version of the code
-- [ ] Add links to figshare for datasets, weights and statistics
-- [ ] Add trained models to HuggingFace
-- [ ] Add ordering network
+- [x] Add ordering network
 - [ ] Add inverse QSAR with genetic algorithm 
+- [ ] Add links to datasets, weights and statistics
+- [ ] Add trained models to HuggingFace
 - [ ] Add tutorials in jupyter/colab
 - [ ] Update documentation for VQGAE
 
@@ -102,13 +102,13 @@ vqgae_train fit -c configs/vqgae_training.yaml
 For the encoding you should run the following command:
 
 ```bash
-vqgae_encode predict -c configs/vqgae_encode.yaml
+vqgae_encode -c configs/vqgae_encode.yaml
 ```
 
 And for the decoding you should run the following command:
 
 ```bash
-vqgae_decode predict -c configs/vqgae_decode.yaml
+vqgae_decode -c configs/vqgae_decode.yaml
 ```
 
 Also, if you want to create an example of default config, simply run:

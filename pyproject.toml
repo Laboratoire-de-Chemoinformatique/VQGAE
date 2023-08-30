@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "vqgae"
-version = "0.0.2"
+version = "0.0.4"
 description = "Official implementation of VQGAE architecture"
 authors = ["Laboratoire de Chemoinformatique <tagirshin@gmail.com>"]
 license = "MIT"
@@ -30,4 +30,5 @@ build-backend = "poetry.core.masonry.api"
 vqgae_train = "VQGAE.cli:training_interface"
 vqgae_encode = "VQGAE.cli:encoding_interface"
 vqgae_decode = "VQGAE.cli:decoding_interface"
+onn_train = "VQGAE.cli:ordering_interface"
 vqgae_default_config = "VQGAE.utils:vqgae_default_config"

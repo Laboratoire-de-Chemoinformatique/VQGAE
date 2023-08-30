@@ -38,7 +38,6 @@ class EncodingCLI(LightningCLI):
         )
         parser.link_arguments("model.max_atoms", "data.max_atoms")
         parser.link_arguments("model.batch_size", "data.batch_size")
-        parser.link_arguments("data.path_train_predict", "encoder_writer.input_file")
 
 
 class DecodingCLI(LightningCLI):
@@ -50,7 +49,6 @@ class DecodingCLI(LightningCLI):
                 "model.task": "decode"
             }
         )
-        parser.link_arguments("model.max_atoms", "data.max_atoms")
         parser.link_arguments("model.batch_size", "data.batch_size")
 
 

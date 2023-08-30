@@ -1,9 +1,15 @@
+import heapq
+
+from typing import Dict
+
 import click
-import torch
 import yaml
-from collections import defaultdict
 from CGRtools.containers import MoleculeContainer
-from torch_geometric.utils import degree
+
+accepted_atoms = ('C', 'N', 'S', 'O', 'Se', 'F', 'Cl', 'Br', 'I', 'B', 'P', 'Si')
+
+atoms_types = (('C', 0), ('S', 0), ('Se', 0), ('F', 0), ('Cl', 0), ('Br', 0),
+               ('I', 0), ('B', 0), ('P', 0), ('Si', 0), ('O', 0), ('O', -1), ('N', 0), ('N', 1), ('N', -1))
 
 training_config = {
     "seed_everything": 42,
@@ -93,19 +99,18 @@ def vqgae_default_config(task):
             raise ValueError(f"I don't know this task: {task}")
 
 
-def create_chem_graph(atoms_sequence, connectivity_matrix, size, atom_types) -> MoleculeContainer:
+def create_chem_graph(atoms_sequence, connectivity_matrix, size) -> MoleculeContainer:
     """
     Create molecular graph or basis for HLG
     :param size: size of molecule
     :param atoms_sequence: sequence of atoms
-    :param atom_types: atoms types
     :param connectivity_matrix: adjacency matrix
     :return: molecular graph
     """
     molecule = MoleculeContainer()
     for n in range(size):
         atom = atoms_sequence[n]
-        atomic_symbol, charge = atom_types[int(atom)]
+        atomic_symbol, charge = atoms_types[int(atom)]  # defined on the line 9
         molecule.add_atom(atom=atomic_symbol, charge=charge)
 
     for i in range(len(molecule)):
@@ -116,51 +121,60 @@ def create_chem_graph(atoms_sequence, connectivity_matrix, size, atom_types) -> 
     return molecule
 
 
-def get_mol_names(sdf_file):
+def beam_search(matrix, beam_width=5):
+    # Initialize priority queue with an empty permutation and mean probability 0
+    pq = [(-0.0, [])]
+    best_perms = []
+
+    for col in range(len(matrix[0])):
+        new_pq = []
+
+        # For each partial permutation in the priority queue
+        for mean_prob, partial_perm in pq:
+            for row in range(len(matrix)):
+                if row not in partial_perm:
+                    # Calculate new mean probability
+                    new_mean_prob = ((-mean_prob * len(partial_perm)) + matrix[row][col]) / (len(partial_perm) + 1)
+
+                    # Add new partial permutation to the new priority queue
+                    new_partial_perm = partial_perm + [row]
+                    heapq.heappush(new_pq, (-new_mean_prob, new_partial_perm))
+
+                    # If the new partial permutation is complete, add it to the best_perms list
+                    if len(new_partial_perm) == len(matrix[0]):
+                        heapq.heappush(best_perms, (-new_mean_prob, new_partial_perm))
+
+        # Keep only the top-k = beam_width partial permutations
+        pq = heapq.nsmallest(beam_width, new_pq)
+
+    # Get all complete permutations
+    top_perms = heapq.nsmallest(beam_width, best_perms)
+    top_perms = [(perm, -mean_prob) for mean_prob, perm in top_perms]
+    return top_perms
+
+
+def _morgan(atoms: Dict[int, int], bonds: Dict[int, Dict[int, int]]) -> Dict[int, int]:
     """
-    Given a file, return a tuple of the names of the molecules in the file.
-
-    :param sdf_file: the file to read from
-    :return: A tuple of the names of the molecules in the SDF file.
+    Adopted from https://github.com/chython/chython/blob/master/chython/algorithms/morgan.py
+    :param atoms: hashes of atoms
+    :param bonds: hashes of bonds
+    :return: unique hashes of atoms after Morgan algorithm
     """
-    with open(sdf_file, 'r') as inp:
-        line = inp.read()
-    names = [mol.split('\n')[0] for mol in line.split('$$$$\n') if mol]
-    del line
-    return tuple(names)
+    tries = len(atoms) - 1
+    numb = len(set(atoms.values()))
+    stab = 0
 
+    for _ in range(tries):
+        atoms = {n: hash((atoms[n], *(x for x in sorted((atoms[m], b) for m, b in ms.items()) for x in x)))
+                 for n, ms in bonds.items()}
+        old_numb, numb = numb, len(set(atoms.values()))
+        if numb == len(atoms):  # each atom now unique
+            break
+        elif numb == old_numb:  # not changed. molecules like benzene
+            if stab == 3:
+                break
+            stab += 1
+        elif stab:  # changed unique atoms number. reset stability check.
+            stab = 0
 
-def write_svm(index, vector, file):
-    num_columns = vector.shape[0] - 1
-    file.write(str(index))
-    for j in range(num_columns):
-        if vector[j]:
-            file.write(f' {j + 1}:{vector[j]}')
-    file.write(f' {num_columns + 1}:{vector[num_columns]}\n')
-
-
-def write_svm_cb(index, codebook_indices, mol_size, file):
-    file.write(str(index))
-    for i, val in codebook_indices.items():
-        file.write(f' {i + 1}:{val + 1}')  # TODO: In decoder not to forget that these indices with + 1
-    if mol_size - 1 not in codebook_indices.keys():
-        file.write(f' {mol_size}:0\n')
-
-
-def pna_deg_stats(dataset):
-    deg = torch.zeros(7, dtype=torch.long)
-    for data, _, _ in dataset:
-        d = degree(data.edge_index[1].long(), num_nodes=data.num_nodes, dtype=torch.long)
-        deg += torch.bincount(d, minlength=deg.numel())
-    return deg
-
-
-def convert_codebook_indices(cb_vecs, mol_sizes):
-    canon_order_inds = []
-    for i in range(cb_vecs.shape[0]):
-        vec = cb_vecs[i, :int(mol_sizes[i])]
-        ordered_tmp = defaultdict(int)
-        for j in range(vec.shape[-1]):
-            ordered_tmp[j] = int(vec[j])
-        canon_order_inds.append(ordered_tmp)
-    return canon_order_inds
+    return atoms

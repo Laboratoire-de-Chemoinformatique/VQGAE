@@ -1,9 +1,12 @@
 import os.path as osp
 from abc import ABC
 from pathlib import Path
+from collections import deque
 
+import networkx as nx
 import numpy as np
 import torch
+from safetensors import safe_open
 from CGRtools.containers import MoleculeContainer
 from CGRtools.files import SDFRead
 from mendeleev import element
@@ -15,20 +18,47 @@ from torch_geometric.loader.dataloader import DataLoader as PYGDataLoader
 from torch_geometric.transforms import ToUndirected
 from tqdm import tqdm
 
+from .utils import accepted_atoms, atoms_types, _morgan
 
-def calc_atoms_info(accepted_atoms: tuple) -> dict:
+
+def bfs_remap(mol: MoleculeContainer) -> MoleculeContainer:
+    # precalculating hashes of atoms for the canonical ordering
+    atoms_hashes = {n: hash((hash(a), n in mol.ring_atoms)) for n, a in mol._atoms.items()}
+    bonds_hashes = {n: {m: hash(b) for m, b in mb.items()} for n, mb in mol._bonds.items()}
+    hashes = _morgan(atoms_hashes, bonds_hashes)
+
+    neighbors = {a: set(b) for a, b in mol._bonds.items()}
+    nx_graph = nx.Graph(neighbors)
+    central_nodes = nx.algorithms.distance_measures.center(nx_graph)
+    current = central_nodes[0]
+    visited_order = [current]
+    stack = deque([current])
+
+    while len(visited_order) != len(neighbors):
+        current = stack.popleft()
+        # sorting neigbors by atoms hashes
+        hashes_neighbors = {i: hashes[i] for i in list(neighbors[current])}
+        hashes_neighbors = sorted(hashes_neighbors.items(), key=lambda x: x[1])
+        for neighbor, _ in hashes_neighbors:
+            if neighbor not in visited_order:
+                visited_order.append(neighbor)
+                stack.append(neighbor)
+
+    new_mol = mol.remap({v: i for i, v in enumerate(visited_order, 1)})
+    return new_mol
+
+
+def calc_atoms_info() -> dict:
     """
     Given a tuple of accepted atoms, return a dictionary with the atom symbol as the key and a tuple of
     the period, group, subshell, and number of electrons as the value.
 
-    :param accepted_atoms: tuple of strings
-    :type accepted_atoms: tuple
     :return: A dictionary with the atomic number as the key and the period, group, shell, and number of
     electrons as the value.
     """
     mendel_info = {}
     shell_to_num = {'s': 1, 'p': 2, 'd': 3, 'f': 4}
-    for atom in accepted_atoms:
+    for atom in accepted_atoms:  # accepted_atoms defined in utils
         mendel_atom = element(atom)
         period = mendel_atom.period
         group = mendel_atom.group_id
@@ -89,7 +119,7 @@ def graph_to_atoms_vectors(molecule: MoleculeContainer, max_atoms: int, mendel_i
     :return: The atoms_vectors array
     """
     atoms_vectors = np.zeros((max_atoms, 11), dtype=np.int8)
-    for n, atom in molecule.atoms():
+    for n, atom in sorted(molecule.atoms()):
         atoms_vectors[n - 1][:8] = atom_to_vector(atom, mendel_info)
     for n, _ in molecule.atoms():
         atoms_vectors[n - 1][8:] = bonds_to_vector(molecule, n)
@@ -109,7 +139,7 @@ def graph_to_bond_matrix(molecule: MoleculeContainer, max_atoms: int):
     """
     bond_matrix = np.zeros((max_atoms, max_atoms), dtype=np.int8)
 
-    for a, n, order in molecule.bonds():
+    for a, n, order in sorted(molecule.bonds()):
         bond_matrix[a - 1][n - 1] = bond_matrix[n - 1][a - 1] = int(order)
         if int(order) == 4:
             raise ValueError('Found a structure with aromatic bond')
@@ -117,40 +147,18 @@ def graph_to_bond_matrix(molecule: MoleculeContainer, max_atoms: int):
     return bond_matrix
 
 
-def generate_true_vector(molecule: MoleculeContainer, max_atoms: int, atoms_types: tuple):
-    """
-    It takes a molecule, the maximum number of atoms in the molecule, and the list of atoms types. It
-    then generates a numpy array of shape (max_atoms, 1) with the atom types of the atoms in the
-    molecule.
-    
-    :param molecule: The molecule to be used for training
-    :param max_atoms: the maximum number of atoms in the molecule
-    :param atoms_types: tuple of tuples, each tuple contains the atomic symbol and the charge of the
-    atom
-    :return: A vector of integers, where each integer is the index of the atom type in the atoms_types
-    tuple.
-    """
-    y_true = -1 * np.ones(max_atoms, dtype=np.int8)
-
-    for n, atom in molecule.atoms():
-        y_true[n - 1] = atoms_types.index((atom.atomic_symbol, atom.charge))
-    return y_true
-
-
-def generate_true_vector_2(molecule: MoleculeContainer, atoms_types: tuple):
+def graph_to_atoms_true_vector(molecule: MoleculeContainer):
     """
     It takes a molecule, the maximum number of atoms in the molecule, and the list of atoms types. It
     then generates a numpy array of shape (max_atoms, 1) with the atom types of the atoms in the
     molecule.
 
     :param molecule: The molecule to be used for training
-    :param atoms_types: tuple of tuples, each tuple contains the atomic symbol and the charge of the
-    atom
     :return: A vector of integers, where each integer is the index of the atom type in the atoms_types
     tuple.
     """
     y_true = []
-    for n, atom in molecule.atoms():
+    for n, atom in sorted(molecule.atoms()):
         y_true.append(atoms_types.index((atom.atomic_symbol, atom.charge)))
     return y_true
 
@@ -167,27 +175,16 @@ def preprocess_molecules(file, max_atoms, properties_names=None):
 
     :raises ValueError: If the molecule size is bigger than the defined maximum.
     """
-    accepted_atoms = ('C', 'N', 'S', 'O', 'Se', 'F', 'Cl', 'Br', 'I', 'B', 'P', 'Si')
-    atoms_types = (('C', 0), ('S', 0), ('Se', 0), ('F', 0), ('Cl', 0), ('Br', 0),
-                   ('I', 0), ('B', 0), ('P', 0), ('Si', 0), ('O', 0), ('O', -1), ('N', 0), ('N', 1), ('N', -1))
-    mendel_info = calc_atoms_info(accepted_atoms)
+
+    mendel_info = calc_atoms_info()
     with SDFRead(file, indexable=True) as inp:
         inp.reset_index()
         for n, molecule in tqdm(enumerate(inp), total=len(inp)):
-            class_properties = []
-            regression_properties = []
             if len(molecule) >= max_atoms:
                 raise ValueError('Found molecule with size bigger than defined')
 
-            mol_adj, edge_attr = [], []
-            for atom, neigbour, bond in molecule.bonds():
-                mol_adj.append([atom - 1, neigbour - 1])
-                edge_attr.append(int(bond))
-            mol_adj = torch.tensor(mol_adj, dtype=torch.long)
-            edge_attr = torch.tensor(edge_attr, dtype=torch.long)
-
-            mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule), mendel_info), dtype=torch.int8)
-            mol_atoms_y = torch.tensor(generate_true_vector_2(molecule, atoms_types), dtype=torch.int8)
+            class_properties = []
+            regression_properties = []
             if properties_names:
                 for mn, task in properties_names.items():
                     prop = molecule.meta[mn]
@@ -197,8 +194,20 @@ def preprocess_molecules(file, max_atoms, properties_names=None):
                         regression_properties.append(float(prop))
                     else:
                         raise ValueError(f"I don't know this task: {task}")
+
+            molecule = bfs_remap(molecule)
+            mol_adj, edge_attr = [], []
+            for atom, neigbour, bond in sorted(molecule.bonds()):
+                mol_adj.append([atom - 1, neigbour - 1])
+                edge_attr.append(int(bond))
+            mol_adj = torch.tensor(mol_adj, dtype=torch.long)
+            edge_attr = torch.tensor(edge_attr, dtype=torch.long)
+
+            mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule), mendel_info), dtype=torch.int8)
+            mol_atoms_y = torch.tensor(graph_to_atoms_true_vector(molecule), dtype=torch.int8)
+
             class_properties = torch.tensor(class_properties, dtype=torch.int8)
-            regression_properties = torch.tensor(class_properties, dtype=torch.float32)
+            regression_properties = torch.tensor(regression_properties, dtype=torch.float32)
             mol_pyg_graph = Data(
                 x=mol_atoms_x,
                 edge_index=mol_adj.t().contiguous(),
@@ -293,7 +302,8 @@ class VQGAEVectors(LightningDataset, LightningDataModule):
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
-        indices = torch.from_numpy(np.load(input_file)["arr_0"])
+        with safe_open(input_file, framework="pt", device="cpu") as f:
+            indices = f.get_tensor("codebook")
         self.dataset = TensorDataset(indices)
         train_size = int(0.8 * len(self.dataset))
         val_size = len(self.dataset) - train_size
