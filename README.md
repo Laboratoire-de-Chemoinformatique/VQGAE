@@ -36,12 +36,7 @@ If you haven't installed `conda-lock` package in your base enviroment, you can d
 conda install --channel=conda-forge --name=base conda-lock
 ```
 
-Then, you should create a new enviroment using `conda-lock.yml` file:
-
-```bash
-conda env create --name vqgae_env --file conda-lock.yml
-```
-Alternatively you can use `vqgae_gpu.yml` file (only if the first option fails):
+Then, you should create a new enviroment using `vqgae_gpu.yml` file:
 
 ```bash
 conda env create --name vqgae_env --file vqgae_gpu.yml

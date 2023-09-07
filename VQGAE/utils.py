@@ -1,10 +1,13 @@
 import heapq
-
 from typing import Dict
 
 import click
+import numpy as np
+import torch
 import yaml
 from CGRtools.containers import MoleculeContainer
+from CGRtools.exceptions import InvalidAromaticRing
+from scipy.optimize import linear_sum_assignment
 
 accepted_atoms = ('C', 'N', 'S', 'O', 'Se', 'F', 'Cl', 'Br', 'I', 'B', 'P', 'Si')
 
@@ -153,28 +156,125 @@ def beam_search(matrix, beam_width=5):
     return top_perms
 
 
-def _morgan(atoms: Dict[int, int], bonds: Dict[int, Dict[int, int]]) -> Dict[int, int]:
-    """
-    Adopted from https://github.com/chython/chython/blob/master/chython/algorithms/morgan.py
-    :param atoms: hashes of atoms
-    :param bonds: hashes of bonds
-    :return: unique hashes of atoms after Morgan algorithm
-    """
-    tries = len(atoms) - 1
-    numb = len(set(atoms.values()))
-    stab = 0
+def morgan(mol: MoleculeContainer) -> Dict[int, float]:
+    # Initialize atom values
+    atom_vals = {}
+    for idx, atom in mol._atoms.items():
+        atom_num = atom.atomic_number * 2 - sum(int(b) for b in mol._bonds[idx].values()) - atom.charge
+        if atom.in_ring:
+            atom_num += 0.5
+        atom_vals[idx] = atom_num
 
-    for _ in range(tries):
-        atoms = {n: hash((atoms[n], *(x for x in sorted((atoms[m], b) for m, b in ms.items()) for x in x)))
-                 for n, ms in bonds.items()}
-        old_numb, numb = numb, len(set(atoms.values()))
-        if numb == len(atoms):  # each atom now unique
+    limit = len(mol._atoms) - 1
+    prev_count = 0
+    stab_count = 0
+
+    for _ in range(limit):
+        # Update atom values based on neighbors
+        new_vals = {}
+        for idx, atom in mol._atoms.items():
+            new_val = atom_vals[idx] + sum(atom_vals[n] for n in mol._bonds[idx])
+            new_vals[idx] = new_val
+
+        atom_vals = new_vals
+
+        # Check for uniqueness
+        uniq_count = len(set(atom_vals.values()))
+        if uniq_count == len(atom_vals):  # each atom now unique
             break
-        elif numb == old_numb:  # not changed. molecules like benzene
-            if stab == 3:
+        elif uniq_count == prev_count:  # not changed. molecules like benzene
+            if stab_count == 3:
                 break
-            stab += 1
-        elif stab:  # changed unique atoms number. reset stability check.
-            stab = 0
+            stab_count += 1
+        elif stab_count:  # changed unique atoms number. reset stability check.
+            stab_count = 0
 
-    return atoms
+        prev_count = uniq_count
+
+    return atom_vals
+
+
+def frag_inds_to_counts(raw_vectors, num_frags=4096):
+    counts_vec = np.zeros((raw_vectors.shape[0], num_frags), dtype=np.uint8)
+    for i in range(raw_vectors.shape[0]):
+        for j in range(raw_vectors.shape[1]):
+            cb_indx = raw_vectors[i, j]
+            if cb_indx > -1:
+                counts_vec[i, cb_indx] += 1
+            else:
+                break
+    return counts_vec
+
+
+def frag_counts_to_inds(frag_counts: np.ndarray, max_atoms=51):
+    frag_inds = -1 * torch.ones((frag_counts.shape[0], max_atoms), dtype=torch.int64)
+    for mol_id in range(frag_counts.shape[0]):
+        atom_counter = 0
+        for frag_id in range(frag_counts.shape[1]):
+            frag_count = frag_counts[mol_id, frag_id]
+            if frag_count:
+                for _ in range(frag_count):
+                    frag_inds[mol_id, atom_counter] = frag_id
+                    atom_counter += 1
+                    if atom_counter == max_atoms - 1:
+                        return frag_inds
+    return frag_inds
+
+
+def find_best_permutation(perm_matrix: np.ndarray):
+    num_rows, num_cols = np.shape(perm_matrix)
+    if num_rows != num_cols:
+        raise ValueError("The permutation matrix must be square.")
+
+    original_cost_matrix = -np.array(perm_matrix)
+    row_ind, col_ind = linear_sum_assignment(original_cost_matrix)
+    score = -original_cost_matrix[row_ind, col_ind].mean()
+    reorder_indices = np.argsort(col_ind)
+    return reorder_indices, score
+
+
+def restore_order(frag_inds, ordering_model):
+    scores = []
+
+    canon_order_inds = -1 * torch.ones_like(frag_inds)
+
+    mol_sizes = torch.where(frag_inds > -1, 1, 0).sum(-1)
+    inputs_order_inds, _ = torch.sort(frag_inds, descending=True)
+
+    with torch.no_grad():
+        results = ordering_model([frag_inds])
+
+    for mol_i in range(frag_inds.shape[0]):
+        mol_size = mol_sizes[mol_i]
+        input_order_inds = inputs_order_inds[mol_i, :mol_size]
+        result_mol = results[mol_i, :mol_size, :mol_size].numpy()
+        top_solution, score = find_best_permutation(result_mol)
+        canon_order_inds[mol_i, :mol_size] = input_order_inds[top_solution]
+        scores.append(score)
+
+    return canon_order_inds, scores
+
+
+def decode_molecules(ordered_frag_inds, vqgae_model):
+    decoded_molecules = []
+    validity = []
+    prediction = vqgae_model([ordered_frag_inds])
+
+    for mol_i in range(prediction[0].shape[0]):
+        molecule = create_chem_graph(
+            prediction[0][mol_i],
+            prediction[1][mol_i],
+            int(prediction[2][mol_i]),
+        )
+        molecule.clean2d()
+        valid = False
+        if molecule.connected_components_count == 1:
+            if not molecule.check_valence():
+                try:
+                    molecule.canonicalize()
+                except InvalidAromaticRing:
+                    continue
+                valid = True
+        decoded_molecules.append(molecule)
+        validity.append(valid)
+    return decoded_molecules, validity

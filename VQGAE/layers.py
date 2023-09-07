@@ -4,6 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 from torch.nn import (
+    ModuleDict,
     ModuleList,
     Linear,
     Module,
@@ -24,14 +25,6 @@ def bonds_masking(atoms_mask):
     adj_mask = atoms_mask_ext * atoms_mask_ext.permute(0, 2, 1)
     adj_mask -= torch.diag_embed(atoms_mask)
     return adj_mask
-
-
-def graph_masking(atoms: torch.Tensor):
-    atoms_mask = torch.where(atoms[:, :, 0] > -1, 1, 0)
-    atoms_mask_ext = torch.unsqueeze(atoms_mask, -1)
-    adj_mask = atoms_mask_ext * atoms_mask_ext.permute(0, 2, 1)
-    adj_mask -= torch.diag_embed(atoms_mask)
-    return atoms_mask, adj_mask
 
 
 class MultiTargetClassifier(Module):
@@ -253,9 +246,67 @@ class GraphEmbedding(Module):
         return atoms, mask
 
 
+class GraphEmbeddingConcat(GraphEmbedding, Module):
+    def __init__(self,
+                 max_atoms: int,
+                 vector_dim: int,
+                 batch: int,
+                 bias: bool = True,
+                 num_conv_layers: int = 8,
+                 *args,
+                 ** kwargs
+                 ):
+        super(GraphEmbeddingConcat, self).__init__(
+            max_atoms,
+            vector_dim,
+            batch,
+            bias,
+            num_conv_layers,
+            *args,
+            **kwargs
+        )
+
+        self.expansion = Linear(11, vector_dim // num_conv_layers, bias)
+        self.gcn_convs = ModuleList(
+            [
+                ModuleDict(
+                    {
+                        "gcn": GCNConv(vector_dim // num_conv_layers, vector_dim // num_conv_layers, improved=True),
+                        "activation": GELU(),
+                        "norm": LayerNorm(vector_dim // num_conv_layers)
+                    }
+                )
+                for _ in range(num_conv_layers)
+            ]
+        )
+
+    def forward(self, atoms, connections, batch):
+        atoms = torch.log(atoms + 1)
+        atoms = self.expansion(atoms)
+
+        collected_atoms = []
+        for gcn_convs in self.gcn_convs:
+            atoms = gcn_convs["gcn"](atoms, connections)
+            atoms = gcn_convs["activation"](atoms)
+            atoms = gcn_convs["norm"](atoms)
+            collected_atoms.append(atoms)
+
+        atoms = torch.cat(collected_atoms, dim=-1)
+
+        atoms, mask = to_dense_batch(
+            atoms, batch, max_num_nodes=self.max_atoms, batch_size=self.batch
+        )
+        return atoms, mask
+
+
 class GraphReconstruction(Module):
     def __init__(
-            self, max_atoms: int, vector_dim: int, bias: bool = True, *args, **kwargs
+            self,
+            max_atoms: int,
+            vector_dim: int,
+            bias: bool = True,
+            *args,
+            **kwargs
     ):
         super(GraphReconstruction, self).__init__(*args, **kwargs)
         self.predict_atoms = Linear(vector_dim // 2, 15, bias)
@@ -297,8 +348,7 @@ class VQGraphAggregation(Module):
             ]
         )
 
-    def forward(self, atoms_vectors, graph_sizes):
-        batch, _, _ = atoms_vectors.shape
+    def forward(self, atoms_vectors):
         summed_vector = torch.sum(atoms_vectors, 1, keepdim=True)
         atoms_vectors = torch.cat((summed_vector, atoms_vectors), 1)
         for layer in self.self_attention:
@@ -374,21 +424,23 @@ class VQDecoder(Module):
         self.positional_bias = positional_bias
         if self.positional_bias:
             self.graph_bias = nn.Parameter(
-                torch.zeros((1, max_atoms, vector_dim,)),
+                torch.empty((1, max_atoms, vector_dim,)),
                 requires_grad=True,
             )
+            with torch.no_grad():
+                nn.init.normal_(self.graph_bias)
         else:
             self.rnn = GRU(vector_dim, vector_dim)
             self.gamma_rnn = Parameter(
                 init_values * torch.ones((vector_dim,)),
                 requires_grad=True,
             )
-            self.self_attention = ModuleList([
-                LayerScaleBlock(vector_dim, num_heads, drop=dropout, init_values=init_values, )
-                for _ in range(num_mha_layers)
-            ])
-            self.graph_reconstruction = GraphReconstruction(max_atoms, vector_dim, bias)
             self.rnn_dropout = Dropout(dropout)
+        self.self_attention = ModuleList([
+            LayerScaleBlock(vector_dim, num_heads, drop=dropout, init_values=init_values, )
+            for _ in range(num_mha_layers)
+        ])
+        self.graph_reconstruction = GraphReconstruction(max_atoms, vector_dim, bias)
 
     def forward(self, atoms_vectors: torch.Tensor):
         if self.positional_bias:

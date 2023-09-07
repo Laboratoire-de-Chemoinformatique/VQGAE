@@ -49,22 +49,22 @@ class BaseAutoEncoder(pl.LightningModule):
     def decode(self, batch):
         raise NotImplementedError
 
-    def _get_reconstruction_loss(self, batch, step, batch_idx):
+    def _get_loss(self, batch, step, batch_idx):
         raise NotImplementedError
 
     def training_step(self, batch, batch_idx):
-        metrics = self._get_reconstruction_loss(batch, 'train', batch_idx)
+        metrics = self._get_loss(batch, 'train', batch_idx)
         for name, value in metrics.items():
             self.log('train_' + name, value, prog_bar=True, on_step=True, on_epoch=True, batch_size=self.batch_size)
         return metrics['loss']
 
     def validation_step(self, batch, batch_idx):
-        metrics = self._get_reconstruction_loss(batch, 'val', batch_idx)
+        metrics = self._get_loss(batch, 'val', batch_idx)
         for name, value in metrics.items():
             self.log('val_' + name, value, on_epoch=True, batch_size=self.batch_size)
 
     def test_step(self, batch, batch_idx):
-        metrics = self._get_reconstruction_loss(batch, 'val', batch_idx)
+        metrics = self._get_loss(batch, 'val', batch_idx)
         for name, value in metrics.items():
             self.log('test_' + name, value, on_epoch=True, batch_size=self.batch_size)
 
@@ -211,7 +211,7 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
 
         return mu, logvar, eps * std + mu
 
-    def _get_reconstruction_loss(self, batch, step, batch_idx):
+    def _get_loss(self, batch, step, batch_idx):
         """
         Computes the reconstruction loss for a batch of molecules.
 
@@ -316,11 +316,12 @@ class OrderingNetwork(pl.LightningModule):
 
     def forward(self, batch):
         inputs = batch[0].long()
+        mask = torch.where(inputs > -1, 1, 0)
+        inputs *= mask
+        unsq_mask = torch.unsqueeze(mask, -1).float()
         values, _ = torch.sort(inputs, descending=True)
-        mask = torch.unsqueeze(torch.where(values > -1, 1, 0), -1).float()
-        pred_sort = self.predictor(values, mask)
+        pred_sort = self.predictor(values, unsq_mask)
         pred_sort = torch.softmax(pred_sort, -1)
-        pred_sort = pred_sort * mask.permute(0, 2, 1)
         return pred_sort
 
     def _get_loss(self, batch):
@@ -341,7 +342,7 @@ class OrderingNetwork(pl.LightningModule):
         ba = (binary_recall(pred_sort, true_one_hot) + binary_specificity(pred_sort, true_one_hot)) / 2
         acc = binary_accuracy(pred_sort, true_one_hot)
 
-        # recosntruction rate calculation
+        # reconstruction rate calculation
 
         pred_chosen = torch.argmax(pred_sort, dim=-1)
         pred_chosen *= mask

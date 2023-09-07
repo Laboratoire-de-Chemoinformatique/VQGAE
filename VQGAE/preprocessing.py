@@ -18,14 +18,12 @@ from torch_geometric.loader.dataloader import DataLoader as PYGDataLoader
 from torch_geometric.transforms import ToUndirected
 from tqdm import tqdm
 
-from .utils import accepted_atoms, atoms_types, _morgan
+from .utils import accepted_atoms, atoms_types, morgan
 
 
 def bfs_remap(mol: MoleculeContainer) -> MoleculeContainer:
     # precalculating hashes of atoms for the canonical ordering
-    atoms_hashes = {n: hash((hash(a), n in mol.ring_atoms)) for n, a in mol._atoms.items()}
-    bonds_hashes = {n: {m: hash(b) for m, b in mb.items()} for n, mb in mol._bonds.items()}
-    hashes = _morgan(atoms_hashes, bonds_hashes)
+    hashes = morgan(mol)
 
     neighbors = {a: set(b) for a, b in mol._bonds.items()}
     nx_graph = nx.Graph(neighbors)
@@ -163,7 +161,47 @@ def graph_to_atoms_true_vector(molecule: MoleculeContainer):
     return y_true
 
 
-def preprocess_molecules(file, max_atoms, properties_names=None):
+def preprocess_molecule(
+        molecule: MoleculeContainer,
+        class_properties: list = [],
+        regression_properties: list = [],
+        mendel_info=None
+):
+    if mendel_info is None:
+        mendel_info = calc_atoms_info()
+
+    molecule = bfs_remap(molecule)
+    mol_adj, edge_attr = [], []
+    for atom, neigbour, bond in sorted(molecule.bonds()):
+        mol_adj.append([atom - 1, neigbour - 1])
+        edge_attr.append(int(bond))
+    mol_adj = torch.tensor(mol_adj, dtype=torch.long)
+    edge_attr = torch.tensor(edge_attr, dtype=torch.long)
+
+    mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule), mendel_info), dtype=torch.int8)
+    mol_atoms_y = torch.tensor(graph_to_atoms_true_vector(molecule), dtype=torch.int8)
+
+    class_properties = torch.tensor(class_properties, dtype=torch.int8)
+    regression_properties = torch.tensor(regression_properties, dtype=torch.float32)
+    pyg_graph = Data(
+        x=mol_atoms_x,
+        edge_index=mol_adj.t().contiguous(),
+        edge_attr=edge_attr,
+        atoms_types=mol_atoms_y,
+        class_prop=class_properties,
+        reg_prop=regression_properties
+    )
+
+    pyg_graph = ToUndirected()(pyg_graph)
+    assert pyg_graph.is_undirected()
+    return pyg_graph
+
+
+def preprocess_molecules(
+        file,
+        max_atoms: int,
+        properties_names=None
+):
     """
     Given a molecule, generates a PyTorch Geometric graph object, a one-hot encoded vector of the atoms, and a
     matrix of the bonds.
@@ -195,30 +233,7 @@ def preprocess_molecules(file, max_atoms, properties_names=None):
                     else:
                         raise ValueError(f"I don't know this task: {task}")
 
-            molecule = bfs_remap(molecule)
-            mol_adj, edge_attr = [], []
-            for atom, neigbour, bond in sorted(molecule.bonds()):
-                mol_adj.append([atom - 1, neigbour - 1])
-                edge_attr.append(int(bond))
-            mol_adj = torch.tensor(mol_adj, dtype=torch.long)
-            edge_attr = torch.tensor(edge_attr, dtype=torch.long)
-
-            mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule), mendel_info), dtype=torch.int8)
-            mol_atoms_y = torch.tensor(graph_to_atoms_true_vector(molecule), dtype=torch.int8)
-
-            class_properties = torch.tensor(class_properties, dtype=torch.int8)
-            regression_properties = torch.tensor(regression_properties, dtype=torch.float32)
-            mol_pyg_graph = Data(
-                x=mol_atoms_x,
-                edge_index=mol_adj.t().contiguous(),
-                edge_attr=edge_attr,
-                atoms_types=mol_atoms_y,
-                class_prop=class_properties,
-                reg_prop=regression_properties
-            )
-
-            mol_pyg_graph = ToUndirected()(mol_pyg_graph)
-            assert mol_pyg_graph.is_undirected()
+            mol_pyg_graph = preprocess_molecule(molecule, class_properties, regression_properties, mendel_info)
             yield mol_pyg_graph
 
 
