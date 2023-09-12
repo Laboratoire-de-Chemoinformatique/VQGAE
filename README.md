@@ -2,19 +2,8 @@
 
 This repository is official implementation of Vector Quantized Graph-based AutoEncoder.
 
-## :construction: Warning :construction:
-
+:construction: Warning :construction:
 This repository is under active development. Soon we will upload all models, weights, datasets etc.
-
-### TO-DO tasks before the stable release:
-
-- [x] First version of the code
-- [x] Add ordering network
-- [ ] Add inverse QSAR with genetic algorithm 
-- [ ] Add links to datasets, weights and statistics
-- [ ] Add trained models to HuggingFace
-- [ ] Add tutorials in jupyter/colab
-- [ ] Update documentation for VQGAE
 
 ## Installation
 

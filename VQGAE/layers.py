@@ -398,7 +398,7 @@ class VQEncoder(Module):
             atoms, connections, graph.batch
         )
         if self.class_aggregation:
-            atoms_vectors, feature_vector = self.graph_aggregation(atoms_embeddings, mol_sizes)
+            atoms_vectors, feature_vector = self.graph_aggregation(atoms_embeddings)
         else:
             atoms_vectors = atoms_embeddings
             feature_vector = torch.sum(atoms_embeddings, axis=-2)
@@ -539,6 +539,9 @@ class VectorQuantizer(Module):
     def embed_code(self, embed_id: torch.LongTensor):
         # embed_id - (batch, max number of atoms)
         return functional.embedding(embed_id, self.codebook.transpose(0, 1))
+
+    def get_codebook(self):
+        return self.codebook.transpose(0, 1)
 
 
 class PositionalEncoding(Module):

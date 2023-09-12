@@ -216,8 +216,10 @@ def frag_counts_to_inds(frag_counts: np.ndarray, max_atoms=51):
                 for _ in range(frag_count):
                     frag_inds[mol_id, atom_counter] = frag_id
                     atom_counter += 1
-                    if atom_counter == max_atoms - 1:
-                        return frag_inds
+                    if atom_counter == max_atoms:
+                        break
+                if atom_counter == max_atoms:
+                    break
     return frag_inds
 
 

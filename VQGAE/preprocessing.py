@@ -21,6 +21,27 @@ from tqdm import tqdm
 from .utils import accepted_atoms, atoms_types, morgan
 
 
+def calc_atoms_info() -> dict:
+    """
+    Given a tuple of accepted atoms, return a dictionary with the atom symbol as the key and a tuple of
+    the period, group, subshell, and number of electrons as the value.
+    :return: A dictionary with of the form {'C': (3, 1, 1, 2), 'O': (3, 1, 1, 2), ...}
+     the atomic number as the key and the period, group, shell, and number of electrons as the value.
+    """
+    mendel_info = {}
+    shell_to_num = {'s': 1, 'p': 2, 'd': 3, 'f': 4}
+    for atom in accepted_atoms:  # accepted_atoms defined in utils
+        mendel_atom = element(atom)
+        period = mendel_atom.period
+        group = mendel_atom.group_id
+        shell, electrons = mendel_atom.ec.last_subshell()
+        mendel_info[atom] = (period, group, shell_to_num[shell[1]], electrons)
+    return mendel_info
+
+
+mendel_info = calc_atoms_info()
+
+
 def bfs_remap(mol: MoleculeContainer) -> MoleculeContainer:
     # precalculating hashes of atoms for the canonical ordering
     hashes = morgan(mol)
@@ -46,26 +67,7 @@ def bfs_remap(mol: MoleculeContainer) -> MoleculeContainer:
     return new_mol
 
 
-def calc_atoms_info() -> dict:
-    """
-    Given a tuple of accepted atoms, return a dictionary with the atom symbol as the key and a tuple of
-    the period, group, subshell, and number of electrons as the value.
-
-    :return: A dictionary with the atomic number as the key and the period, group, shell, and number of
-    electrons as the value.
-    """
-    mendel_info = {}
-    shell_to_num = {'s': 1, 'p': 2, 'd': 3, 'f': 4}
-    for atom in accepted_atoms:  # accepted_atoms defined in utils
-        mendel_atom = element(atom)
-        period = mendel_atom.period
-        group = mendel_atom.group_id
-        shell, electrons = mendel_atom.ec.last_subshell()
-        mendel_info[atom] = (period, group, shell_to_num[shell[1]], electrons)
-    return mendel_info
-
-
-def atom_to_vector(atom, mendel_info: dict):
+def atom_to_vector(atom):
     """
     Given an atom, return a vector of length 8 with the following information:
 
@@ -79,8 +81,6 @@ def atom_to_vector(atom, mendel_info: dict):
     8. Number of neighbors
 
     :param atom: the atom object
-    :param mendel_info: a dictionary of the form {'C': (3, 1, 1, 2), 'O': (3, 1, 1, 2), ...}
-    :type mendel_info: dict
     :return: The vector of the atom.
     """
     vector = np.zeros(8, dtype=np.int8)
@@ -103,7 +103,7 @@ def bonds_to_vector(molecule: MoleculeContainer, atom_ind: int):
     return vector
 
 
-def graph_to_atoms_vectors(molecule: MoleculeContainer, max_atoms: int, mendel_info: dict):
+def graph_to_atoms_vectors(molecule: MoleculeContainer, max_atoms: int):
     """
     Given a molecule, it returns a vector of shape (max_atoms, 12) where each row is an atom and each
     column is a feature.
@@ -112,13 +112,11 @@ def graph_to_atoms_vectors(molecule: MoleculeContainer, max_atoms: int, mendel_i
     :type molecule: MoleculeContainer
     :param max_atoms: The maximum number of atoms in the molecule
     :type max_atoms: int
-    :param mendel_info: a dictionary containing the information about the Mendel system
-    :type mendel_info: dict
     :return: The atoms_vectors array
     """
     atoms_vectors = np.zeros((max_atoms, 11), dtype=np.int8)
     for n, atom in sorted(molecule.atoms()):
-        atoms_vectors[n - 1][:8] = atom_to_vector(atom, mendel_info)
+        atoms_vectors[n - 1][:8] = atom_to_vector(atom)
     for n, _ in molecule.atoms():
         atoms_vectors[n - 1][8:] = bonds_to_vector(molecule, n)
 
@@ -165,11 +163,7 @@ def preprocess_molecule(
         molecule: MoleculeContainer,
         class_properties: list = [],
         regression_properties: list = [],
-        mendel_info=None
 ):
-    if mendel_info is None:
-        mendel_info = calc_atoms_info()
-
     molecule = bfs_remap(molecule)
     mol_adj, edge_attr = [], []
     for atom, neigbour, bond in sorted(molecule.bonds()):
@@ -178,7 +172,7 @@ def preprocess_molecule(
     mol_adj = torch.tensor(mol_adj, dtype=torch.long)
     edge_attr = torch.tensor(edge_attr, dtype=torch.long)
 
-    mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule), mendel_info), dtype=torch.int8)
+    mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule)), dtype=torch.int8)
     mol_atoms_y = torch.tensor(graph_to_atoms_true_vector(molecule), dtype=torch.int8)
 
     class_properties = torch.tensor(class_properties, dtype=torch.int8)
@@ -214,7 +208,6 @@ def preprocess_molecules(
     :raises ValueError: If the molecule size is bigger than the defined maximum.
     """
 
-    mendel_info = calc_atoms_info()
     with SDFRead(file, indexable=True) as inp:
         inp.reset_index()
         for n, molecule in tqdm(enumerate(inp), total=len(inp)):
@@ -233,7 +226,7 @@ def preprocess_molecules(
                     else:
                         raise ValueError(f"I don't know this task: {task}")
 
-            mol_pyg_graph = preprocess_molecule(molecule, class_properties, regression_properties, mendel_info)
+            mol_pyg_graph = preprocess_molecule(molecule, class_properties, regression_properties)
             yield mol_pyg_graph
 
 
