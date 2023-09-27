@@ -257,7 +257,7 @@ def restore_order(frag_inds, ordering_model):
     return canon_order_inds, scores
 
 
-def decode_molecules(ordered_frag_inds, vqgae_model):
+def decode_molecules(ordered_frag_inds, vqgae_model, clean_2d=True):
     decoded_molecules = []
     validity = []
     prediction = vqgae_model([ordered_frag_inds])
@@ -268,15 +268,17 @@ def decode_molecules(ordered_frag_inds, vqgae_model):
             prediction[1][mol_i],
             int(prediction[2][mol_i]),
         )
-        molecule.clean2d()
         valid = False
-        if molecule.connected_components_count == 1:
-            if not molecule.check_valence():
-                try:
-                    molecule.canonicalize()
-                except InvalidAromaticRing:
-                    continue
-                valid = True
+        if len(molecule) > 2:
+            if clean_2d:
+                molecule.clean2d()
+            if molecule.connected_components_count == 1:
+                if not molecule.check_valence():
+                    try:
+                        molecule.thiele()
+                    except InvalidAromaticRing:
+                        valid = False
+                    valid = True
         decoded_molecules.append(molecule)
         validity.append(valid)
     return decoded_molecules, validity
