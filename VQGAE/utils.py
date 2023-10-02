@@ -5,7 +5,8 @@ import click
 import numpy as np
 import torch
 import yaml
-from CGRtools.containers import MoleculeContainer
+from CGRtools.containers import MoleculeContainer, QueryContainer
+from CGRtools.periodictable import ListElement, AnyElement
 from CGRtools.exceptions import InvalidAromaticRing
 from scipy.optimize import linear_sum_assignment
 
@@ -257,6 +258,104 @@ def restore_order(frag_inds, ordering_model):
     return canon_order_inds, scores
 
 
+# bad groups filtration rules
+
+small_ring = QueryContainer()
+small_ring.add_atom(AnyElement())
+small_ring.add_atom(AnyElement())
+small_ring.add_atom(AnyElement())
+small_ring.add_atom(AnyElement())
+small_ring.add_bond(1, 2, [2, 4])
+small_ring.add_bond(3, 4, [2, 4])
+small_ring.add_bond(1, 3, [1, 2, 3, 4])
+small_ring.add_bond(2, 4, [1, 2, 3, 4])
+
+bad_acylator = QueryContainer()
+bad_acylator.add_atom(AnyElement())
+bad_acylator.add_atom(ListElement(["F", "Cl", "Br", "I"]))
+bad_acylator.add_atom(ListElement(["O", "N"]))
+bad_acylator.add_bond(1, 2, 1)
+bad_acylator.add_bond(1, 3, 2)
+
+bad_heterotriplet = QueryContainer()
+bad_heterotriplet.add_atom(ListElement(["B", "N", "O"]))
+bad_heterotriplet.add_atom(ListElement(["B", "N", "O"]))
+bad_heterotriplet.add_atom(ListElement(["B", "N", "O"]))
+bad_heterotriplet.add_bond(1, 2, [2, 3, 4])
+bad_heterotriplet.add_bond(1, 3, [1, 2,])
+
+bad_multiring = QueryContainer()
+for _ in range(7):
+    bad_multiring.add_atom(AnyElement())
+bad_multiring.add_bond(1, 2, 4)
+bad_multiring.add_bond(2, 3, 4)
+bad_multiring.add_bond(3, 4, 4)
+bad_multiring.add_bond(4, 5, 4)
+bad_multiring.add_bond(5, 6, 4)
+bad_multiring.add_bond(6, 1, 4)
+bad_multiring.add_bond(1, 7, 1)
+bad_multiring.add_bond(3, 7, 1)
+
+bad_multiring_2 = QueryContainer()
+for _ in range(5):
+    bad_multiring_2.add_atom("C")
+for _ in range(2):
+    bad_multiring_2.add_atom(AnyElement())
+bad_multiring_2.add_bond(1, 2, 4)
+bad_multiring_2.add_bond(2, 3, 4)
+bad_multiring_2.add_bond(3, 4, 4)
+bad_multiring_2.add_bond(4, 5, 4)
+bad_multiring_2.add_bond(5, 1, 4)
+bad_multiring_2.add_bond(1, 6, 4)
+bad_multiring_2.add_bond(3, 7, 4)
+
+allene = QueryContainer()
+allene.add_atom("C")
+allene.add_atom("A")
+allene.add_atom("A")
+allene.add_bond(1, 2, 2)
+allene.add_bond(1, 3, 2)
+
+peroxide_charge = QueryContainer()
+peroxide_charge.add_atom("O", charge=-1)
+peroxide_charge.add_atom("O")
+peroxide_charge.add_bond(1, 2, 1)
+
+peroxide = QueryContainer()
+peroxide.add_atom("O")
+peroxide.add_atom("O")
+peroxide.add_bond(1, 2, 1)
+
+bad_groups = [
+    small_ring,
+    bad_acylator,
+    bad_heterotriplet,
+    bad_multiring,
+    bad_multiring_2,
+    allene,
+    peroxide_charge,
+    peroxide
+]
+
+
+def filter_molecule(molecule: MoleculeContainer):
+    # filtering out molecules with the bad group
+    for group in bad_groups:
+        if group < molecule:
+            return False
+
+    # filtering out macrocycles and wrong microcycles
+    for ring in molecule.sssr:
+        if len(ring) > 8:
+            return False
+        elif len(ring) == 3:
+            for n_atom in ring:
+                atom = molecule.atom(n_atom)
+                if atom.hybridization != 1 or atom.atomic_symbol not in ['C', 'O']:
+                    return False
+    return True
+
+
 def decode_molecules(ordered_frag_inds, vqgae_model, clean_2d=True):
     decoded_molecules = []
     validity = []
@@ -276,9 +375,9 @@ def decode_molecules(ordered_frag_inds, vqgae_model, clean_2d=True):
                 if not molecule.check_valence():
                     try:
                         molecule.thiele()
+                        valid = filter_molecule(molecule)
                     except InvalidAromaticRing:
                         valid = False
-                    valid = True
         decoded_molecules.append(molecule)
         validity.append(valid)
     return decoded_molecules, validity
