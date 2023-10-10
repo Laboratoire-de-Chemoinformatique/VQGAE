@@ -2,6 +2,10 @@
 
 This repository is official implementation of Vector Quantized Graph-based AutoEncoder.
 
+The demo of VQGAE is availible on [HuggingFace](https://huggingface.co/spaces/tagirshin/VQGAE).
+
+More details on the implementation can be found in the [pre-print](https://chemrxiv.org/engage/chemrxiv/article-details/6439662408c86922fff8d6e5).
+
 :construction: Warning :construction:
 This repository is under active development. Soon we will upload all models, weights, datasets etc.
 
