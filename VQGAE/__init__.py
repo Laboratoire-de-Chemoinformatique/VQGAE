@@ -10,6 +10,8 @@ from .filters import (
     compute_qed_sas,
     mol_to_rdkit,
     pains_brenk_nih_filter,
+    rdkit_to_mol,
+    smiles_to_mol,
 )
 from .inference import (
     decode_population,
@@ -50,7 +52,9 @@ __all__ = [
     "frag_inds_to_counts",
     "mol_to_rdkit",
     "pains_brenk_nih_filter",
+    "rdkit_to_mol",
     "restore_order",
+    "smiles_to_mol",
     "tanimoto_distance_counts",
     # latent-space utilities
     "tanimoto_kernel",

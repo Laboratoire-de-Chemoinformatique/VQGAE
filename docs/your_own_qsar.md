@@ -17,6 +17,12 @@ This page is the narrative.
 - A few hundred to a few thousand molecules. RFs work well below 5k; below
   300 you're going to fight overfitting whatever you do.
 
+> **Don't have an SDF, only SMILES?** Use `VQGAE.encode_smiles(smiles_list,
+> encoder)` instead of `vqgae_encode_dataset(sdf_path, encoder)`. SMILES
+> are parsed via `smiles_to_mol` which falls back to RDKit canonicalisation
+> for inputs chython rejects, so RDKit / OpenEye / web-drawer dialects all
+> work without preprocessing.
+
 ## Pipeline
 
 ```

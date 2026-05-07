@@ -199,3 +199,62 @@ def test_filter_molecule_rejects_peroxide():
     m = smiles("CCOOC")  # has peroxide bond
     m.canonicalize()
     assert filter_molecule(m) is False
+
+
+# ---------------------------------------------------------------------------
+# 6. RDKit interop helpers (smiles_to_mol / rdkit_to_mol / mol_to_rdkit)
+# ---------------------------------------------------------------------------
+
+# A handful of complex real-world drugs picked to exercise stereo, fused
+# polycycles, macrocycles, and sugars. SMILES are RDKit-canonical, which is
+# the dialect that most often gives chython trouble.
+_COMPLEX_DRUGS = {
+    "taxol": "CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)[C@@H]2OC(=O)C)C)O)OC(=O)C)OC(=O)c5ccccc5)(C[C@@H]1OC(=O)[C@H](O)[C@@H](NC(=O)c6ccccc6)c7ccccc7)O)(C)C",
+    "vincristine": "CCC1(CC2CC(c3c(CCN(C2)C1)c4ccccc4[nH]3)(C(=O)OC)C5=C6C7(C8C(C(=O)OC)(c9c(c%10ccccc%10n9C=O)CC8)C(C7)O)CC(O6)(O)C5)O",
+    "erythromycin": "CC[C@H]1OC(=O)[C@H](C)[C@@H](O[C@H]2C[C@@](C)(OC)[C@@H](O)[C@H](C)O2)[C@H](C)[C@@H](O[C@@H]3O[C@H](C)C[C@@H]([C@H]3O)N(C)C)[C@](C)(O)C[C@@H](C)C(=O)[C@H](C)[C@@H](O)[C@]1(C)O",
+    "imatinib": "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc4nccc(n4)c5cccnc5",
+    "atorvastatin": "CC(C)c1c(C(=O)Nc2ccccc2)c(c3ccccc3)c(c4ccc(F)cc4)n1CC[C@H](O)C[C@H](O)CC(=O)O",
+}
+
+
+@pytest.mark.parametrize("name,smi", list(_COMPLEX_DRUGS.items()))
+def test_smiles_to_mol_complex_drugs(name, smi):
+    """`smiles_to_mol` parses RDKit-canonical SMILES of complex drugs."""
+    from VQGAE import smiles_to_mol
+
+    m = smiles_to_mol(smi)
+    # 30+ heavy atoms for every drug above; check we got a non-trivial graph
+    assert len(m) >= 30, f"{name}: expected >=30 atoms, got {len(m)}"
+
+
+@pytest.mark.parametrize("name,smi", list(_COMPLEX_DRUGS.items()))
+def test_rdkit_to_mol_round_trip(name, smi):
+    """`mol_to_rdkit` ∘ `rdkit_to_mol` preserves the canonical chython SMILES."""
+    from rdkit import Chem
+
+    from VQGAE import mol_to_rdkit, rdkit_to_mol
+
+    rd = Chem.MolFromSmiles(smi)
+    assert rd is not None, f"RDKit failed to parse {name}"
+    m1 = rdkit_to_mol(rd)
+    rd2 = mol_to_rdkit(m1)
+    m2 = rdkit_to_mol(rd2)
+    assert str(m1) == str(m2), (
+        f"{name}: canonical chython SMILES differs after round-trip\n  m1: {m1}\n  m2: {m2}"
+    )
+
+
+def test_smiles_to_mol_no_fallback_propagates():
+    """With fallback_to_rdkit=False, a chython parse error must propagate."""
+    from VQGAE import smiles_to_mol
+
+    with pytest.raises(Exception):  # noqa: B017 — chython raises a few different exception types
+        smiles_to_mol("not a valid smiles", fallback_to_rdkit=False)
+
+
+def test_smiles_to_mol_unparseable_raises_value_error():
+    """A SMILES neither chython nor RDKit can parse raises ValueError."""
+    from VQGAE import smiles_to_mol
+
+    with pytest.raises(ValueError, match="could not parse SMILES"):
+        smiles_to_mol("ZZZZZ()(()(((((")

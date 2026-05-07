@@ -95,6 +95,7 @@ from huggingface_hub import hf_hub_download
 from VQGAE import (
     VQGAE, OrderingNetwork,
     encode_smiles, decode_population,
+    smiles_to_mol, rdkit_to_mol,            # robust SMILES + RDKit interop
     tanimoto_kernel, filter_molecule,
 )
 
@@ -115,6 +116,13 @@ mols, validity, ordering_scores = decode_population(counts, dec, onn)
 The 4096-dim integer histogram (`counts`, `sum ≤ 51`) is what every published
 optimizer (PyGAD GA, NSGA-II, …) searches over. `tanimoto_kernel` and
 `filter_molecule` are the same helpers used in the Tubulin paper.
+
+**SMILES from anywhere.** `encode_smiles` accepts SMILES in any common dialect
+(RDKit-canonical, Kekulé, with or without stereo). Internally it uses
+`smiles_to_mol`, which tries chython first and falls back to RDKit
+canonicalisation when chython rejects the input. If you have an RDKit
+`Mol` already, `rdkit_to_mol(rdkit_mol)` returns a chython
+`MoleculeContainer` ready to feed into `vqgae_encode_mols`.
 
 ## Command-line interface
 
