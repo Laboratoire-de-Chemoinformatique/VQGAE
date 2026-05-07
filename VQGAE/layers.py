@@ -1,21 +1,20 @@
 import math
-from typing import Tuple
 
 import torch
 from torch import nn
 from torch.nn import (
-    ModuleDict,
-    ModuleList,
-    Linear,
-    Module,
-    Parameter,
+    GELU,
     GRU,
     Dropout,
-    LayerNorm,
     Embedding,
-    GELU
+    LayerNorm,
+    Linear,
+    Module,
+    ModuleDict,
+    ModuleList,
+    Parameter,
+    functional,
 )
-from torch.nn import functional
 from torch_geometric.nn.conv import GCNConv
 from torch_geometric.utils import to_dense_batch
 
@@ -49,7 +48,7 @@ class MultiTargetClassifier(Module):
 
 class Defactorization(Module):
     def __init__(self, vector_length, bias=True):
-        super(Defactorization, self).__init__()
+        super().__init__()
         self.weights = nn.Parameter(torch.empty((vector_length,)))
         with torch.no_grad():
             nn.init.normal_(self.weights)
@@ -71,7 +70,7 @@ class Defactorization(Module):
 
 class MultiEdgeDefactorization(Module):
     def __init__(self, max_atoms, vector_dim, bias=False):
-        super(MultiEdgeDefactorization, self).__init__()
+        super().__init__()
         self.bonds_linear = ModuleList(
             [Linear(vector_dim, max_atoms) for _ in range(4)]
         )
@@ -100,13 +99,13 @@ class AttentionTalkingHead(Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     # with slight modifications to add Talking Heads Attention (https://arxiv.org/pdf/2003.02436v1.pdf)
     def __init__(
-            self,
-            dim,
-            num_heads=8,
-            qkv_bias=False,
-            qk_scale=None,
-            attn_drop=0.0,
-            proj_drop=0.0,
+        self,
+        dim,
+        num_heads=8,
+        qkv_bias=False,
+        qk_scale=None,
+        attn_drop=0.0,
+        proj_drop=0.0,
     ):
         super().__init__()
 
@@ -114,7 +113,7 @@ class AttentionTalkingHead(Module):
 
         head_dim = dim // num_heads
 
-        self.scale = qk_scale or head_dim ** -0.5
+        self.scale = qk_scale or head_dim**-0.5
         self.qkv = Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = Dropout(attn_drop)
         self.proj = Linear(dim, dim)
@@ -150,12 +149,12 @@ class FFN(Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.GELU,
-            drop=0.0,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        drop=0.0,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -178,16 +177,16 @@ class LayerScaleBlock(Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     # with slight modifications to add layerScale
     def __init__(
-            self,
-            dim,
-            num_heads,
-            mlp_ratio=4.0,
-            qkv_bias=False,
-            qk_scale=None,
-            drop=0.0,
-            attn_drop=0.0,
-            act_layer=nn.GELU,
-            init_values=1e-4,
+        self,
+        dim,
+        num_heads,
+        mlp_ratio=4.0,
+        qkv_bias=False,
+        qk_scale=None,
+        drop=0.0,
+        attn_drop=0.0,
+        act_layer=nn.GELU,
+        init_values=1e-4,
     ):
         super().__init__()
         self.norm1 = LayerNorm(dim)
@@ -212,16 +211,16 @@ class LayerScaleBlock(Module):
 
 class GraphEmbedding(Module):
     def __init__(
-            self,
-            max_atoms: int,
-            vector_dim: int,
-            batch: int,
-            bias: bool = True,
-            num_conv_layers: int = 5,
-            *args,
-            **kwargs
+        self,
+        max_atoms: int,
+        vector_dim: int,
+        batch: int,
+        bias: bool = True,
+        num_conv_layers: int = 5,
+        *args,
+        **kwargs,
     ):
-        super(GraphEmbedding, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.max_atoms = max_atoms
         self.batch = batch
         self.expansion = Linear(11, vector_dim, bias)
@@ -247,23 +246,18 @@ class GraphEmbedding(Module):
 
 
 class GraphEmbeddingConcat(GraphEmbedding, Module):
-    def __init__(self,
-                 max_atoms: int,
-                 vector_dim: int,
-                 batch: int,
-                 bias: bool = True,
-                 num_conv_layers: int = 8,
-                 *args,
-                 ** kwargs
-                 ):
-        super(GraphEmbeddingConcat, self).__init__(
-            max_atoms,
-            vector_dim,
-            batch,
-            bias,
-            num_conv_layers,
-            *args,
-            **kwargs
+    def __init__(
+        self,
+        max_atoms: int,
+        vector_dim: int,
+        batch: int,
+        bias: bool = True,
+        num_conv_layers: int = 8,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            max_atoms, vector_dim, batch, bias, num_conv_layers, *args, **kwargs
         )
 
         self.expansion = Linear(11, vector_dim // num_conv_layers, bias)
@@ -271,9 +265,13 @@ class GraphEmbeddingConcat(GraphEmbedding, Module):
             [
                 ModuleDict(
                     {
-                        "gcn": GCNConv(vector_dim // num_conv_layers, vector_dim // num_conv_layers, improved=True),
+                        "gcn": GCNConv(
+                            vector_dim // num_conv_layers,
+                            vector_dim // num_conv_layers,
+                            improved=True,
+                        ),
                         "activation": GELU(),
-                        "norm": LayerNorm(vector_dim // num_conv_layers)
+                        "norm": LayerNorm(vector_dim // num_conv_layers),
                     }
                 )
                 for _ in range(num_conv_layers)
@@ -301,14 +299,9 @@ class GraphEmbeddingConcat(GraphEmbedding, Module):
 
 class GraphReconstruction(Module):
     def __init__(
-            self,
-            max_atoms: int,
-            vector_dim: int,
-            bias: bool = True,
-            *args,
-            **kwargs
+        self, max_atoms: int, vector_dim: int, bias: bool = True, *args, **kwargs
     ):
-        super(GraphReconstruction, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.predict_atoms = Linear(vector_dim // 2, 15, bias)
         self.deembedding = Linear(vector_dim, vector_dim // 2, True)
         self.factorize = Linear(vector_dim, vector_dim // 8, True)
@@ -326,16 +319,16 @@ class GraphReconstruction(Module):
 
 class VQGraphAggregation(Module):
     def __init__(
-            self,
-            vector_dim: int,
-            num_heads: int = 16,
-            num_agg_layers: int = 3,
-            dropout: float = 0.1,
-            init_values=1e-2,
-            *args,
-            **kwargs
+        self,
+        vector_dim: int,
+        num_heads: int = 16,
+        num_agg_layers: int = 3,
+        dropout: float = 0.1,
+        init_values=1e-2,
+        *args,
+        **kwargs,
     ):
-        super(VQGraphAggregation, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.self_attention = ModuleList(
             [
                 LayerScaleBlock(
@@ -360,27 +353,27 @@ class VQGraphAggregation(Module):
 
 class VQEncoder(Module):
     def __init__(
-            self,
-            max_atoms: int,
-            vector_dim: int,
-            batch_size: int,
-            num_heads: int = 16,
-            num_conv_layers: int = 5,
-            num_agg_layers: int = 2,
-            bias: bool = True,
-            dropout=0.1,
-            init_values=1e-4,
-            class_aggregation=False,
-            *args,
-            **kwargs
+        self,
+        max_atoms: int,
+        vector_dim: int,
+        batch_size: int,
+        num_heads: int = 16,
+        num_conv_layers: int = 5,
+        num_agg_layers: int = 2,
+        bias: bool = True,
+        dropout=0.1,
+        init_values=1e-4,
+        class_aggregation=False,
+        *args,
+        **kwargs,
     ):
-        super(VQEncoder, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.graph_embedding = GraphEmbedding(
             max_atoms=max_atoms,
             vector_dim=vector_dim,
             batch=batch_size,
             bias=bias,
-            num_conv_layers=num_conv_layers
+            num_conv_layers=num_conv_layers,
         )
         self.class_aggregation = class_aggregation
         if self.class_aggregation:
@@ -408,23 +401,29 @@ class VQEncoder(Module):
 
 class VQDecoder(Module):
     def __init__(
-            self,
-            max_atoms: int,
-            vector_dim: int,
-            num_heads: int,
-            num_mha_layers: int,
-            bias: bool = True,
-            dropout: float = 0.1,
-            init_values: float = 1e-4,
-            positional_bias=False,
-            *args,
-            **kwargs
+        self,
+        max_atoms: int,
+        vector_dim: int,
+        num_heads: int,
+        num_mha_layers: int,
+        bias: bool = True,
+        dropout: float = 0.1,
+        init_values: float = 1e-4,
+        positional_bias=False,
+        *args,
+        **kwargs,
     ):
-        super(VQDecoder, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.positional_bias = positional_bias
         if self.positional_bias:
             self.graph_bias = nn.Parameter(
-                torch.empty((1, max_atoms, vector_dim,)),
+                torch.empty(
+                    (
+                        1,
+                        max_atoms,
+                        vector_dim,
+                    )
+                ),
                 requires_grad=True,
             )
             with torch.no_grad():
@@ -436,10 +435,17 @@ class VQDecoder(Module):
                 requires_grad=True,
             )
             self.rnn_dropout = Dropout(dropout)
-        self.self_attention = ModuleList([
-            LayerScaleBlock(vector_dim, num_heads, drop=dropout, init_values=init_values, )
-            for _ in range(num_mha_layers)
-        ])
+        self.self_attention = ModuleList(
+            [
+                LayerScaleBlock(
+                    vector_dim,
+                    num_heads,
+                    drop=dropout,
+                    init_values=init_values,
+                )
+                for _ in range(num_mha_layers)
+            ]
+        )
         self.graph_reconstruction = GraphReconstruction(max_atoms, vector_dim, bias)
 
     def forward(self, atoms_vectors: torch.Tensor):
@@ -449,7 +455,9 @@ class VQDecoder(Module):
         else:
             ordered_vectors, _ = self.rnn(atoms_vectors.permute(1, 0, 2))
             ordered_vectors = ordered_vectors.permute(1, 0, 2)
-            atoms_vectors = atoms_vectors + self.gamma_rnn * self.rnn_dropout(ordered_vectors)
+            atoms_vectors = atoms_vectors + self.gamma_rnn * self.rnn_dropout(
+                ordered_vectors
+            )
         for layer in self.self_attention:
             atoms_vectors = layer(atoms_vectors)
         p_atoms, p_bonds = self.graph_reconstruction(atoms_vectors)
@@ -463,12 +471,12 @@ class VectorQuantizer(Module):
     """
 
     def __init__(
-            self,
-            num_embeddings: int,
-            embedding_dim: int,
-            flatten: bool = False,
-            tune: bool = False,
-            ema: bool = True,
+        self,
+        num_embeddings: int,
+        embedding_dim: int,
+        flatten: bool = False,
+        tune: bool = False,
+        ema: bool = True,
     ):
         super().__init__()
         self.n_embed = num_embeddings
@@ -492,20 +500,21 @@ class VectorQuantizer(Module):
 
     @torch.cuda.amp.autocast(enabled=False)
     def forward(
-            self, latents: torch.FloatTensor
-    ) -> Tuple[torch.FloatTensor, float, torch.LongTensor]:
-
+        self, latents: torch.FloatTensor
+    ) -> tuple[torch.FloatTensor, float, torch.LongTensor]:
         if self.flatten:
             latents = latents.reshape(-1, self.dim)
 
         dist = (
-                latents.pow(2).sum(1, keepdim=True)
-                - 2 * latents @ self.codebook
-                + self.codebook.pow(2).sum(0, keepdim=True)
+            latents.pow(2).sum(1, keepdim=True)
+            - 2 * latents @ self.codebook
+            + self.codebook.pow(2).sum(0, keepdim=True)
         )
 
         _, codebook_ind = (-dist).max(1)
-        codebook_onehot = functional.one_hot(codebook_ind, self.n_embed).type(latents.dtype)
+        codebook_onehot = functional.one_hot(codebook_ind, self.n_embed).type(
+            latents.dtype
+        )
         codebook_ind = codebook_ind.view(*latents.shape[:-1])
         quantize = self.embed_code(codebook_ind)
         quantize = latents + (quantize - latents).detach()
@@ -525,7 +534,7 @@ class VectorQuantizer(Module):
 
                 n = self.cluster_size.sum()
                 cluster_size = (
-                        (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
+                    (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
                 )
                 embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
                 self.codebook.data.copy_(embed_normalized)
@@ -570,33 +579,37 @@ class PositionalEncoding(Module):
 
 class ONN(Module):
     def __init__(
-            self,
-            mol_size: int,
-            num_embeddings: int,
-            embedding_dim: int = 128,
-            num_heads=8,
-            num_mha=2,
-            init_values=0.001,
-            dropout: float = 0.2,
+        self,
+        mol_size: int,
+        num_embeddings: int,
+        embedding_dim: int = 128,
+        num_heads=8,
+        num_mha=2,
+        init_values=0.001,
+        dropout: float = 0.2,
     ):
-        """
-        """
+        """ """
         super().__init__()
         self.emb = Embedding(num_embeddings, embedding_dim, padding_idx=0)
-        self.positional_encoding = Parameter(torch.empty((1, mol_size, embedding_dim)), requires_grad=True)
+        self.positional_encoding = Parameter(
+            torch.empty((1, mol_size, embedding_dim)), requires_grad=True
+        )
         with torch.no_grad():
             torch.nn.init.normal_(self.positional_encoding)
-        self.attentions = ModuleList([
-            LayerScaleBlock(
-                embedding_dim,
-                num_heads,
-                mlp_ratio=4.0,
-                qkv_bias=True,
-                act_layer=GELU,
-                init_values=init_values,
-                drop=dropout
-            ) for _ in range(num_mha)
-        ])
+        self.attentions = ModuleList(
+            [
+                LayerScaleBlock(
+                    embedding_dim,
+                    num_heads,
+                    mlp_ratio=4.0,
+                    qkv_bias=True,
+                    act_layer=GELU,
+                    init_values=init_values,
+                    drop=dropout,
+                )
+                for _ in range(num_mha)
+            ]
+        )
         self.scorer = Linear(embedding_dim, mol_size)
 
     def forward(self, inputs, mask):

@@ -1,0 +1,39 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- uv / virtualenv ---
+.venv/
+venv/
+
+# --- editor / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- pytest ---
+.pytest_cache/
+
+# --- runtime artifacts ---
+# CLI default config emitter (`vqgae_default_config --task ...`) writes to CWD.
+/default_vqgae_config_*.yaml
+
+# Lightning logs / checkpoints scratch dirs (notebooks + smoke runs use these).
+/logs/
+/outputs/
+/lightning_logs/
+/tmp/
+
+# Backups of pre-sklearn-1.8 pickles, not used at runtime.
+*.pickle.bak
+*.bak
+
+# Tutorial-generated outputs (per-run; not source).
+notebooks/*_executed.ipynb
+notebooks/tubulin_chosen_generated.sdf
+notebooks/colchicine_scaffold_generated.smi

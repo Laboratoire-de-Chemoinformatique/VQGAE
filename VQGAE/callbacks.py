@@ -1,8 +1,8 @@
-import torch
 from abc import ABC
 from pathlib import Path
 
-from CGRtools.files import SDFWrite
+import torch
+from chython.files import SDFWrite
 from pytorch_lightning.callbacks import BasePredictionWriter
 from safetensors.torch import save_file
 
@@ -11,11 +11,11 @@ from .utils import create_chem_graph
 
 class EncoderPredictionsWriter(BasePredictionWriter, ABC):
     def __init__(
-            self,
-            output_name: str,
-            output_dir: str,
-            use_chunks: bool = True,
-            chunk_size: int = 400,
+        self,
+        output_name: str,
+        output_dir: str,
+        use_chunks: bool = True,
+        chunk_size: int = 400,
     ):
         super().__init__()
         self.use_chunks = use_chunks
@@ -32,11 +32,17 @@ class EncoderPredictionsWriter(BasePredictionWriter, ABC):
         feature_dim = self.features_tmp[0].shape[-1]
         codebook_dim = self.codebook_tmp[0].shape[-1]
         output = {
-            "features": torch.reshape(torch.stack(self.features_tmp), (-1, feature_dim)),
-            "codebook": torch.reshape(torch.stack(self.codebook_tmp), (-1, codebook_dim))
+            "features": torch.reshape(
+                torch.stack(self.features_tmp), (-1, feature_dim)
+            ),
+            "codebook": torch.reshape(
+                torch.stack(self.codebook_tmp), (-1, codebook_dim)
+            ),
         }
         if self.use_chunks:
-            output_file = self.output_dir.joinpath(f"{self.output_name}_chunk_{self.chunk_id:03}.safetensors")
+            output_file = self.output_dir.joinpath(
+                f"{self.output_name}_chunk_{self.chunk_id:03}.safetensors"
+            )
         else:
             output_file = self.output_dir.joinpath(f"{self.output_name}.safetensors")
         save_file(output, str(output_file))
@@ -46,7 +52,16 @@ class EncoderPredictionsWriter(BasePredictionWriter, ABC):
             self.features_tmp = []
             self.codebook_tmp = []
 
-    def write_on_batch_end(self, trainer, pl_module, prediction, batch_indices, batch, batch_idx, dataloader_idx):
+    def write_on_batch_end(
+        self,
+        trainer,
+        pl_module,
+        prediction,
+        batch_indices,
+        batch,
+        batch_idx,
+        dataloader_idx,
+    ):
         feature_vector = prediction[1].cpu()
         codebook_inds = prediction[2].cpu()
         self.features_tmp.append(feature_vector)
@@ -79,14 +94,14 @@ class DecoderPredictionsWriter(BasePredictionWriter, ABC):
             self.output_file.write(molecule)
 
     def write_on_batch_end(
-            self,
-            trainer,
-            pl_module,
-            prediction,
-            batch_indices,
-            batch,
-            batch_idx,
-            dataloader_idx,
+        self,
+        trainer,
+        pl_module,
+        prediction,
+        batch_indices,
+        batch,
+        batch_idx,
+        dataloader_idx,
     ):
         decoder_pred = (
             prediction[0].cpu().numpy(),

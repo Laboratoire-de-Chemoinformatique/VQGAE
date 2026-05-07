@@ -1,0 +1,36 @@
+seed_everything: 42
+trainer:
+  logger:
+      class_path: pytorch_lightning.loggers.CSVLogger
+      init_args:
+          save_dir: ./logs/
+          name: ordering_network
+          version: 1
+  gradient_clip_val: 1.0
+  accelerator: 'gpu'
+  devices: [0]
+  max_epochs: 1000
+  log_every_n_steps: 1000
+  precision: 16
+  detect_anomaly: false
+model:
+  max_atoms: 51
+  batch_size: 1000
+  vq_embeddings: 4096
+  embedding_dim: 512
+  num_heads: 16
+  num_mha_layers: 8
+  dropout: 0.25
+  init_values: 0.0005
+  lr: 0.001
+data:
+  # safetensors file produced by `vqgae_encode` over the training set
+  # (key "codebook"). The ONN learns canonical atom orderings on these.
+  input_file: ./outputs/encoded_codebook_inds.safetensors
+ordering_network_lr_monitor:
+  logging_interval: epoch
+ordering_network_model_checkpoint:
+  dirpath: ./weights/
+  filename: ${trainer.logger.init_args.name}
+  monitor: val_rec_rate
+  mode: max

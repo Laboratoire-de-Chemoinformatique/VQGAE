@@ -1,9 +1,9 @@
 import torch
 from torch.nn.functional import (
-    cross_entropy,
-    one_hot,
-    mse_loss,
     binary_cross_entropy_with_logits,
+    cross_entropy,
+    mse_loss,
+    one_hot,
 )
 from torchmetrics import Metric
 
@@ -40,9 +40,17 @@ def compute_adj_loss(pred_adj, true_adj, adj_mask, length):
     :param length: the length of the sequence
     :return: The loss is the average loss over all the nodes in the graph.
     """
-    result = binary_cross_entropy_with_logits(pred_adj, true_adj.float(), reduction="none")
+    result = binary_cross_entropy_with_logits(
+        pred_adj, true_adj.float(), reduction="none"
+    )
     masked_result = result * adj_mask
-    loss = torch.sum(masked_result, dim=(1, 2,),)
+    loss = torch.sum(
+        masked_result,
+        dim=(
+            1,
+            2,
+        ),
+    )
     loss /= length * 2
     return loss
 

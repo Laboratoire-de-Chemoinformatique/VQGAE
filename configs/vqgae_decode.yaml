@@ -1,0 +1,30 @@
+seed_everything: 42
+trainer:
+  accelerator: 'gpu'
+  devices: [0]
+model:
+  max_atoms: 51
+  batch_size: 500
+  num_conv_layers: 5
+  vector_dim: 512
+  num_mha_layers: 8
+  num_agg_layers: 2
+  num_heads_encoder: 16
+  num_heads_decoder: 16
+  dropout: 0.2
+  bias: true
+  init_values: 0.0005
+  lr: 0.0002
+  task: decode
+  shuffle_graph: false
+  positional_bias: false
+  reparam: false
+  class_categories: [38, 29, 21, 25, 16, 13, 50, 13]
+data:
+  # safetensors file produced by `vqgae_encode` (key "codebook").
+  input_file: ./outputs/encoded_codebook_inds.safetensors
+decoder_writer:
+  output_file: ./outputs/reconstructed.sdf
+# Path to the .ckpt produced by `vqgae_train fit` (or downloaded from
+# https://huggingface.co/tagirshin/VQGAE).
+ckpt_model_file: ./vqgae.ckpt

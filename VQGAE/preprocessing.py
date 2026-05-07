@@ -1,17 +1,17 @@
 import os.path as osp
 from abc import ABC
-from pathlib import Path
 from collections import deque
+from pathlib import Path
 
 import networkx as nx
 import numpy as np
 import torch
-from safetensors import safe_open
-from CGRtools.containers import MoleculeContainer
-from CGRtools.files import SDFRead
+from chython.containers import MoleculeContainer
+from chython.files import SDFRead
 from mendeleev import element
 from pytorch_lightning import LightningDataModule
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from safetensors import safe_open
+from torch.utils.data import DataLoader, TensorDataset, random_split
 from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.data.lightning import LightningDataset
 from torch_geometric.loader.dataloader import DataLoader as PYGDataLoader
@@ -29,7 +29,7 @@ def calc_atoms_info() -> dict:
      the atomic number as the key and the period, group, shell, and number of electrons as the value.
     """
     mendel_info = {}
-    shell_to_num = {'s': 1, 'p': 2, 'd': 3, 'f': 4}
+    shell_to_num = {"s": 1, "p": 2, "d": 3, "f": 4}
     for atom in accepted_atoms:  # accepted_atoms defined in utils
         mendel_atom = element(atom)
         period = mendel_atom.period
@@ -63,7 +63,10 @@ def bfs_remap(mol: MoleculeContainer) -> MoleculeContainer:
                 visited_order.append(neighbor)
                 stack.append(neighbor)
 
-    new_mol = mol.remap({v: i for i, v in enumerate(visited_order, 1)})
+    # chython's remap mutates in place and returns None (CGRtools used to
+    # return a new container). copy-then-remap to keep the caller's mol intact.
+    new_mol = mol.copy()
+    new_mol.remap({v: i for i, v in enumerate(visited_order, 1)})
     return new_mol
 
 
@@ -138,7 +141,7 @@ def graph_to_bond_matrix(molecule: MoleculeContainer, max_atoms: int):
     for a, n, order in sorted(molecule.bonds()):
         bond_matrix[a - 1][n - 1] = bond_matrix[n - 1][a - 1] = int(order)
         if int(order) == 4:
-            raise ValueError('Found a structure with aromatic bond')
+            raise ValueError("Found a structure with aromatic bond")
 
     return bond_matrix
 
@@ -154,17 +157,20 @@ def graph_to_atoms_true_vector(molecule: MoleculeContainer):
     tuple.
     """
     y_true = []
-    for n, atom in sorted(molecule.atoms()):
+    for _n, atom in sorted(molecule.atoms()):
         y_true.append(atoms_types.index((atom.atomic_symbol, atom.charge)))
     return y_true
 
 
 def preprocess_molecule(
-        molecule: MoleculeContainer,
-        class_properties: list = [],
-        regression_properties: list = [],
+    molecule: MoleculeContainer,
+    class_properties: list = [],
+    regression_properties: list = [],
 ):
     molecule = bfs_remap(molecule)
+    # the model was trained on Kekulé-form bond orders (1, 2, 3); chython reports
+    # aromatic bonds as order 4 by default, so dearomatize before featurising.
+    molecule.kekule()
     mol_adj, edge_attr = [], []
     for atom, neigbour, bond in sorted(molecule.bonds()):
         mol_adj.append([atom - 1, neigbour - 1])
@@ -172,7 +178,9 @@ def preprocess_molecule(
     mol_adj = torch.tensor(mol_adj, dtype=torch.long)
     edge_attr = torch.tensor(edge_attr, dtype=torch.long)
 
-    mol_atoms_x = torch.tensor(graph_to_atoms_vectors(molecule, len(molecule)), dtype=torch.int8)
+    mol_atoms_x = torch.tensor(
+        graph_to_atoms_vectors(molecule, len(molecule)), dtype=torch.int8
+    )
     mol_atoms_y = torch.tensor(graph_to_atoms_true_vector(molecule), dtype=torch.int8)
 
     class_properties = torch.tensor(class_properties, dtype=torch.int8)
@@ -183,7 +191,7 @@ def preprocess_molecule(
         edge_attr=edge_attr,
         atoms_types=mol_atoms_y,
         class_prop=class_properties,
-        reg_prop=regression_properties
+        reg_prop=regression_properties,
     )
 
     pyg_graph = ToUndirected()(pyg_graph)
@@ -191,11 +199,7 @@ def preprocess_molecule(
     return pyg_graph
 
 
-def preprocess_molecules(
-        file,
-        max_atoms: int,
-        properties_names=None
-):
+def preprocess_molecules(file, max_atoms: int, properties_names=None):
     """
     Given a molecule, generates a PyTorch Geometric graph object, a one-hot encoded vector of the atoms, and a
     matrix of the bonds.
@@ -208,30 +212,58 @@ def preprocess_molecules(
     :raises ValueError: If the molecule size is bigger than the defined maximum.
     """
 
+    from chython.exceptions import ValenceError
+
+    skipped_size = 0
+    skipped_valence = 0
+    skipped_meta = 0
     with SDFRead(file, indexable=True) as inp:
         inp.reset_index()
-        for n, molecule in tqdm(enumerate(inp), total=len(inp)):
+        for _n, molecule in tqdm(enumerate(inp), total=len(inp)):
+            # chython rejects oversized inputs upstream of the model; the
+            # original code raised here, but during training on a large SDF
+            # one bad row shouldn't kill the whole epoch — skip and tally.
             if len(molecule) >= max_atoms:
-                raise ValueError('Found molecule with size bigger than defined')
+                skipped_size += 1
+                continue
 
             class_properties = []
             regression_properties = []
             if properties_names:
-                for mn, task in properties_names.items():
-                    prop = molecule.meta[mn]
-                    if task == "class":
-                        class_properties.append(int(prop))
-                    elif task == "reg":
-                        regression_properties.append(float(prop))
-                    else:
-                        raise ValueError(f"I don't know this task: {task}")
+                try:
+                    for mn, task in properties_names.items():
+                        prop = molecule.meta[mn]
+                        if task == "class":
+                            class_properties.append(int(prop))
+                        elif task == "reg":
+                            regression_properties.append(float(prop))
+                        else:
+                            raise ValueError(f"I don't know this task: {task}")
+                except (KeyError, ValueError):
+                    skipped_meta += 1
+                    continue
 
-            mol_pyg_graph = preprocess_molecule(molecule, class_properties, regression_properties)
+            try:
+                mol_pyg_graph = preprocess_molecule(
+                    molecule, class_properties, regression_properties
+                )
+            except ValenceError:
+                # chython enforces stricter valence rules than CGRtools — some
+                # ChEMBL atoms (radicals, hypervalent N/S) raise here. Skip.
+                skipped_valence += 1
+                continue
             yield mol_pyg_graph
+    if skipped_size or skipped_valence or skipped_meta:
+        print(
+            f"[preprocess_molecules] skipped: size>{max_atoms}={skipped_size}, "
+            f"ValenceError={skipped_valence}, missing/bad meta={skipped_meta}"
+        )
 
 
 class MolDataset(InMemoryDataset, ABC):
-    def __init__(self, max_atoms, molecules_file, properties_names=None, processed_path=None):
+    def __init__(
+        self, max_atoms, molecules_file, properties_names=None, processed_path=None
+    ):
         super().__init__(None, None, None)
         self.max_atoms = max_atoms
         self.processed_path = processed_path
@@ -245,7 +277,11 @@ class MolDataset(InMemoryDataset, ABC):
             print(f"Data from {molecules_file} is preprocessed")
 
     def prepare(self):
-        processed_data = list(preprocess_molecules(self.molecules_file, self.max_atoms, self.properties_names))
+        processed_data = list(
+            preprocess_molecules(
+                self.molecules_file, self.max_atoms, self.properties_names
+            )
+        )
         data, slices = self.collate(processed_data)
         if self.processed_path:
             torch.save((data, slices), self.processed_path)
@@ -255,17 +291,17 @@ class MolDataset(InMemoryDataset, ABC):
 
 class VQGAEData(LightningDataset, LightningDataModule):
     def __init__(
-            self,
-            path_train_predict: str,
-            max_atoms: int,
-            batch_size: int,
-            num_workers: int = 0,
-            pin_memory: bool = False,
-            drop_last: bool = False,
-            path_val: str = None,
-            tmp_folder: str = None,
-            tmp_name: str = None,
-            properties_names: dict = None
+        self,
+        path_train_predict: str,
+        max_atoms: int,
+        batch_size: int,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+        drop_last: bool = False,
+        path_val: str | None = None,
+        tmp_folder: str | None = None,
+        tmp_name: str | None = None,
+        properties_names: dict | None = None,
     ):
         train_tmp_file = None
         val_tmp_file = None
@@ -280,10 +316,16 @@ class VQGAEData(LightningDataset, LightningDataModule):
 
         val_dataset = None
         if path_val:
-            train_dataset = MolDataset(max_atoms, path_train_predict, properties_names, train_tmp_file)
-            val_dataset = MolDataset(max_atoms, path_val, properties_names, val_tmp_file)
+            train_dataset = MolDataset(
+                max_atoms, path_train_predict, properties_names, train_tmp_file
+            )
+            val_dataset = MolDataset(
+                max_atoms, path_val, properties_names, val_tmp_file
+            )
         else:
-            train_dataset = MolDataset(max_atoms, path_train_predict, properties_names, encode_tmp_file)
+            train_dataset = MolDataset(
+                max_atoms, path_train_predict, properties_names, encode_tmp_file
+            )
 
         super().__init__(
             train_dataset=train_dataset,
@@ -295,18 +337,20 @@ class VQGAEData(LightningDataset, LightningDataModule):
         )
 
     def predict_dataloader(self) -> PYGDataLoader:
-        return self.dataloader(self.train_dataset, shuffle=False, batch_size=self.batch_size)
+        return self.dataloader(
+            self.train_dataset, shuffle=False, batch_size=self.batch_size
+        )
 
 
 class VQGAEVectors(LightningDataset, LightningDataModule):
     def __init__(
-            self,
-            input_file,
-            batch_size: int = 1,
-            num_workers: int = 0,
-            pin_memory: bool = False,
-            drop_last: bool = False,
-            seed=42
+        self,
+        input_file,
+        batch_size: int = 1,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+        drop_last: bool = False,
+        seed=42,
     ):
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -316,9 +360,7 @@ class VQGAEVectors(LightningDataset, LightningDataModule):
         train_size = int(0.8 * len(self.dataset))
         val_size = len(self.dataset) - train_size
         train_dataset, val_dataset = random_split(
-            self.dataset,
-            [train_size, val_size],
-            torch.Generator().manual_seed(seed)
+            self.dataset, [train_size, val_size], torch.Generator().manual_seed(seed)
         )
 
         super().__init__(
@@ -331,4 +373,9 @@ class VQGAEVectors(LightningDataset, LightningDataModule):
         )
 
     def predict_dataloader(self) -> DataLoader:
-        return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False)
+        return DataLoader(
+            self.dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+        )

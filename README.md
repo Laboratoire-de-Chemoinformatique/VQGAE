@@ -1,108 +1,145 @@
 # Vector Quantized Graph-based AutoEncoder (VQGAE)
 
-This repository is official implementation of Vector Quantized Graph-based AutoEncoder.
+This repository is the official implementation of the **Vector Quantized Graph-based AutoEncoder**.
 
-The demo of VQGAE is availible on [HuggingFace](https://huggingface.co/spaces/tagirshin/VQGAE).
+- **Preprint:** [ChemRxiv](https://chemrxiv.org/engage/chemrxiv/article-details/6439662408c86922fff8d6e5)
+- **Pretrained weights:** [tagirshin/VQGAE](https://huggingface.co/tagirshin/VQGAE) on the Hugging Face Hub
+- **Live demo:** the inverse-QSAR Genetic Algorithm pipeline runs on
+  [Hugging Face Spaces](https://huggingface.co/spaces/tagirshin/VQGAE)
 
-More details on the implementation can be found in the [pre-print](https://chemrxiv.org/engage/chemrxiv/article-details/6439662408c86922fff8d6e5).
+## Tutorials (`notebooks/`)
 
-:construction: Warning :construction:
-This repository is under active development. Soon we will upload all models, weights, datasets etc.
+| Notebook | What it shows |
+|---|---|
+| `01_quickstart.ipynb` | Encode + decode round-trip on a few SMILES, ~30 lines. |
+| `02_inverse_qsar_tubulin.ipynb` | Full inverse-QSAR pipeline (encode → RF → GA → decode → filter). Reproduces the published Tubulin demo. |
+| `03_bring_your_own_optimizer.ipynb` | Same Tubulin objective with PyGAD GA, Optuna TPE, and random search side-by-side. Template for plugging in any external optimizer. |
 
-## Installation
+## Installation (uv, recommended)
 
-This tool depends on the pytorch, pytorch-geometric and pytorch-lightning packages. 
-If you want to use GPU, then you need to manually specify NVIDIA GPU driver version during installation. 
-Therefore, we provide to instructions to install the VQGAE package with conda and manually.
-
-### Conda installation (recommended)
-
-Here we specify installation with conda/mamba. 
-First, you should copy reposotiry from git
+The project ships with [uv](https://docs.astral.sh/uv/) sources for CPU and CUDA builds of PyTorch:
 
 ```bash
 git clone https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git
-cd VQGAE/
-```
-If you haven't installed `conda-lock` package in your base enviroment, you can do it using the following command:
-```bash
-conda install --channel=conda-forge --name=base conda-lock
+cd VQGAE
+uv sync --extra cpu --extra examples       # CPU on Mac/Linux
+# or:
+uv sync --extra cu126 --extra examples     # CUDA 12.6
+uv sync --extra cu128 --extra examples     # CUDA 12.8
 ```
 
-Then, you should create a new enviroment using `vqgae_gpu.yml` file:
+Open the tutorials with:
 
 ```bash
+uv run jupyter lab notebooks/
+```
+
+### Pip (alternative)
+
+```bash
+pip install "vqgae[cpu,examples] @ git+https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git"
+```
+
+Available extras: `cpu`, `cu126`, `cu128` (mutually exclusive — pick one), `ga`,
+`bo`, `notebooks`, `app`, `examples` (= `ga + bo + notebooks`).
+
+<details>
+<summary><strong>Legacy install (conda/manual fallback)</strong></summary>
+
+Use this only if `uv sync` and the pip-with-extras paths above don't work for
+your environment (typically: old CUDA drivers, restricted clusters, no `uv`).
+
+#### Conda lockfile
+
+```bash
+git clone https://github.com/Laboratoire-de-Chemoinformatique/VQGAE.git
+cd VQGAE
+conda install --channel=conda-forge --name=base conda-lock      # if not installed
 conda env create --name vqgae_env --file vqgae_gpu.yml
-```
-Then, you should activate the created enviroment, download repository and install VQGAE:
-
-```bash
 conda activate vqgae_env
 pip install .
 ```
 
-### Manual installation
+#### Fully manual
 
-If drivers on your NVIDIA machine does not match with the ones used in enviroment, 
-you can manually install all required packages.
-(Currently, we used Pytorch for CUDA 11.8 while drivers were already version of 12.0 and it worked fine)
-
-First, check your GPU driver version with `nvcc` or `nvidia-smi`.
-
-In case you haven't installed cudatoolkit drivers, and it requires administrator permissions whic you might not have,
-the only way to install is pytorch GPU version is with conda:
-
-`conda install pytorch cudatoolkit=${CUDAVERSION} -c pytorch -c conda-forge -y`
-
-where ${CUDAVERSION} is version of your GPU driver (the tool was tested with ${CUDAVERSION}=11.6).
-
-In case you can manually install [cudatoolkit](https://developer.nvidia.com/cuda-toolkit),
-pytorch can be installed as
-
-`pip3 install torch --extra-index-url https://download.pytorch.org/whl/${CUDATORCH}`
-
-where ${CUDATORCH} is CUDA version in pytorch format (cpu, cu102, cu113, cu116).
-
-For more details, please visit the
-[official pytorch installation documentation](https://pytorch.org/get-started/locally/)
-
-Then, proceed with installation of [pytorch-geometric](https://pytorch-geometric.readthedocs.io/en/latest/index.html):
-
-`pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric
--f https://data.pyg.org/whl/torch-${TORCH}+${CUDAPYG}.html`
-
-where ${CUDATORCH} is CUDA version in pytorch format (cpu, cu102, cu113, cu116) and ${TORCH} is
-version of installed pytorch (1.11.0, 1.12.0). For more details please, check the
-[pytorch-geometric installation docs](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html).
-
-Finally, install pytorch-lightning and adabelief optimizer:
-
-`pip install "pytorch-lightning>2.0" "adabelief-pytorch>=0.2.1"`
-
-## Example usage
-
-The tool work in command line mode. For the training you can simply run:
+If conda drivers don't match your machine, install the stack by hand. The tool
+was originally tested with CUDA 11.8 + Pytorch 2.0; it works on newer versions
+of both — see `pyproject.toml` for the currently-tested constraints.
 
 ```bash
-vqgae_train fit -c configs/vqgae_training.yaml
+# 1. PyTorch (pick the CUDA version matching your driver, or cpu)
+pip3 install torch --extra-index-url https://download.pytorch.org/whl/${CUDATORCH}
+#    where ${CUDATORCH} ∈ {cpu, cu118, cu121, cu126, cu128}
+#    docs: https://pytorch.org/get-started/locally/
+
+# 2. PyTorch Geometric (must match the torch+cuda combo above)
+pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric \
+    -f https://data.pyg.org/whl/torch-${TORCH}+${CUDAPYG}.html
+#    docs: https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html
+
+# 3. Lightning + AdaBelief
+pip install "pytorch-lightning>=2.3" "adabelief-pytorch>=0.2.1"
+
+# 4. VQGAE itself
+pip install .
 ```
 
-For the encoding you should run the following command:
+</details>
+
+## Python API
+
+Top-level imports cover the common use cases:
+
+```python
+from huggingface_hub import hf_hub_download
+from VQGAE import (
+    VQGAE, OrderingNetwork,
+    encode_smiles, decode_population,
+    tanimoto_kernel, filter_molecule,
+)
+
+# load
+vqgae_ckpt = hf_hub_download("tagirshin/VQGAE", "vqgae.ckpt")
+onn_ckpt   = hf_hub_download("tagirshin/VQGAE", "ordering_network.ckpt")
+enc = VQGAE.load_from_checkpoint(vqgae_ckpt, task="encode", batch_size=8, map_location="cpu").eval()
+dec = VQGAE.load_from_checkpoint(vqgae_ckpt, task="decode", batch_size=8, map_location="cpu").eval()
+onn = OrderingNetwork.load_from_checkpoint(onn_ckpt, batch_size=8, map_location="cpu").eval()
+
+# encode -> 4096-dim integer fragment-count latent
+codebook_inds, counts = encode_smiles(["CC(=O)Oc1ccccc1C(=O)O", "C1=CC=CC=C1"], enc)
+
+# round-trip decode
+mols, validity, ordering_scores = decode_population(counts, dec, onn)
+```
+
+The 4096-dim integer histogram (`counts`, `sum ≤ 51`) is what every published
+optimizer (PyGAD GA, NSGA-II, …) searches over. `tanimoto_kernel` and
+`filter_molecule` are the same helpers used in the Tubulin paper.
+
+## Command-line interface
 
 ```bash
-vqgae_encode -c configs/vqgae_encode.yaml
+vqgae_train  fit -c configs/vqgae_training.yaml
+vqgae_encode     -c configs/vqgae_encode.yaml
+vqgae_decode     -c configs/vqgae_decode.yaml
+onn_train    fit -c configs/ordering_network_training.yaml
+vqgae_default_config --task train      # emits a default config
 ```
 
-And for the decoding you should run the following command:
+See [`docs/cli.md`](docs/cli.md) for every config knob, and
+[`docs/train_from_scratch.md`](docs/train_from_scratch.md) for the
+SDF → VQGAE → encode → ONN chain end-to-end.
 
-```bash
-vqgae_decode -c configs/vqgae_decode.yaml
-```
+## Documentation
 
-Also, if you want to create an example of default config, simply run:
-```bash
-vqgae_default_config --task train
-```
+The [`docs/`](docs/) folder covers everything tutorials don't:
+
+- [`cli.md`](docs/cli.md) — config knobs for every CLI command
+- [`latent_shapes.md`](docs/latent_shapes.md) — what `encode()` returns and which tensor your optimizer should target
+- [`ordering_network.md`](docs/ordering_network.md) — why a second model exists and when to retrain it
+- [`train_from_scratch.md`](docs/train_from_scratch.md) — full retraining recipe
+- [`your_own_qsar.md`](docs/your_own_qsar.md) — plug your own activity data into the inverse-QSAR pipeline
+- [`fragment_inspection.md`](docs/fragment_inspection.md) — what each codebook fragment represents chemically
 
 ## Contributing
 

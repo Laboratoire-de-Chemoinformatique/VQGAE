@@ -1,34 +1,153 @@
-[tool.poetry]
+[project]
 name = "vqgae"
-version = "0.1.2"
-description = "Official implementation of VQGAE architecture"
-authors = ["Laboratoire de Chemoinformatique <tagirshin@gmail.com>"]
-license = "MIT"
+version = "0.1.3"
+description = "Official implementation of VQGAE architecture (Vector Quantised Graph AutoEncoder)"
 readme = "README.md"
-packages = [
-    { include = "VQGAE", from = "." },
+requires-python = ">=3.10,<3.15"
+license = { text = "MIT" }
+authors = [{ name = "Laboratoire de Chemoinformatique", email = "tagirshin@gmail.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Chemistry",
 ]
 
-[tool.poetry.dependencies]
-python = ">=3.8,<3.12"
-cgrtools = ">=4.1.34"
-py-mini-racer = ">=0.6"
-mendeleev = ">=0.10"
-omegaconf = ">=2.2"
-tqdm = ">=4.64"
-click = ">=8.1"
-jsonargparse = { version = ">=4.12.0", extras = ["signatures"] }
-adabelief-pytorch = "0.2.1"
-pygad = ">=3.0"
-pony = ">=0.7"
+dependencies = [
+    "chython-synplan[racer-default]>=1.93",
+    # cachedmethods 0.2.0 (2026-05-02) regressed: its __get__ fast path reads
+    # obj.__dict__ unconditionally, which raises AttributeError on chython's
+    # __slots__-only Element classes. Pin until upstream patches.
+    "cachedmethods<0.2",
+    "torch-geometric>=2.4",
+    "torchmetrics>=0.11",
+    "pytorch-lightning>=2.3.3,!=2.6.2,!=2.6.3",
+    "adabelief-pytorch>=0.2.1",
+    "mendeleev>=0.13",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-learn>=1.2",
+    "pandas>=1.5",
+    "networkx>=3.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.64",
+    "click>=8.1",
+    "jsonargparse[signatures]>=4.12",
+    "omegaconf>=2.2",
+    "safetensors>=0.4",
+    "huggingface-hub>=0.20",
+]
 
-[build-system]
-requires = ["poetry_core>=1.4.0"]
-build-backend = "poetry.core.masonry.api"
+[project.optional-dependencies]
+# PyTorch backend (mutually exclusive — pick one)
+cpu = ["torch>=2.0"]
+cu126 = ["torch>=2.0"]
+cu128 = ["torch>=2.0"]
+# Optimizers used in examples
+ga = ["pygad>=3.0"]
+bo = ["optuna>=3.5"]
+# Notebooks / demo app
+notebooks = ["jupyter", "ipykernel", "matplotlib>=3.7"]
+app = ["streamlit>=1.27"]
+# RDKit-backed filters (PAINS/BRENK/NIH, QED, SAScore, chython→RDKit conversion).
+# Lazy-imported by VQGAE.filters so encode/decode users don't pay for it.
+filters = ["rdkit>=2023.9"]
+# Scaffold-constrained generation tutorial uses DEAP NSGA-II.
+scaffold = ["deap>=1.4"]
+# Convenience: everything for the examples + tutorials
+examples = ["vqgae[ga,bo,notebooks,filters,scaffold]"]
 
-[tool.poetry.scripts]
+[project.scripts]
 vqgae_train = "VQGAE.cli:training_interface"
 vqgae_encode = "VQGAE.cli:encoding_interface"
 vqgae_decode = "VQGAE.cli:decoding_interface"
 onn_train = "VQGAE.cli:ordering_interface"
 vqgae_default_config = "VQGAE.utils:vqgae_default_config"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["VQGAE"]
+
+[tool.uv]
+# torch backend extras are mutually exclusive
+conflicts = [[
+    { extra = "cpu" },
+    { extra = "cu126" },
+    { extra = "cu128" },
+]]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu126", extra = "cu126" },
+    { index = "pytorch-cu128", extra = "cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "ruff>=0.14.4,<0.15",
+]
+
+# -- ruff (lint + format) ---------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = [
+    "notebooks",          # generated .ipynb cell sources are formatted by hand
+    "data",               # vendored fixtures
+]
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # bugbear
+    "SIM",    # simplify
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line too long — handled by `ruff format`
+    "E722",   # bare except — research code uses these in many places
+    "B905",   # zip() without strict= — too noisy for scientific code
+    "SIM108", # ternary operator — sometimes if/else is clearer
+    "SIM115", # open-file-with-context-handler — needs refactoring
+    "RUF002", # ambiguous unicode in docstrings
+    "RUF003", # ambiguous unicode in comments
+    "F403",   # star imports — suppressed; per-file allowlist for __init__
+    "F405",   # names from star imports
+    "F821",   # undefined names — to be investigated
+    "B006",   # mutable argument default
+    "RUF012", # mutable class default without ClassVar
+    "SIM102", # collapsible-if — sometimes nested ifs are clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"VQGAE/cli.py" = ["F401"]   # LightningCLI subclasses look unused but bind via add_arguments_to_parser

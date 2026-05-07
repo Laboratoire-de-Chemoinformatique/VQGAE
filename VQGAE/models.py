@@ -4,24 +4,35 @@ import pytorch_lightning as pl
 import torch
 from adabelief_pytorch import AdaBelief
 from torch.nn import Linear
-from torch.nn.functional import one_hot, cross_entropy, binary_cross_entropy_with_logits
-from torchmetrics.functional.classification import binary_f1_score, binary_recall, binary_accuracy, binary_specificity
+from torch.nn.functional import binary_cross_entropy_with_logits, cross_entropy, one_hot
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch_geometric.utils import to_dense_batch, to_dense_adj
+from torch_geometric.utils import to_dense_adj, to_dense_batch
+from torchmetrics.functional.classification import (
+    binary_accuracy,
+    binary_f1_score,
+    binary_recall,
+    binary_specificity,
+)
 
-from .layers import bonds_masking, VectorQuantizer, VQEncoder, VQDecoder, MultiTargetClassifier, ONN
-from .metrics import ReconstructionRate, BondsError
-from .metrics import compute_atoms_loss, compute_bonds_loss
+from .layers import (
+    ONN,
+    MultiTargetClassifier,
+    VectorQuantizer,
+    VQDecoder,
+    VQEncoder,
+    bonds_masking,
+)
+from .metrics import (
+    BondsError,
+    ReconstructionRate,
+    compute_atoms_loss,
+    compute_bonds_loss,
+)
 
 
 class BaseAutoEncoder(pl.LightningModule):
-    def __init__(
-            self,
-            batch_size: int = 512,
-            lr: float = 2e-4,
-            task='train'
-    ):
-        super(BaseAutoEncoder, self).__init__()
+    def __init__(self, batch_size: int = 512, lr: float = 2e-4, task="train"):
+        super().__init__()
         self.task = task
         self.batch_size = batch_size
         self.lr = lr
@@ -33,11 +44,11 @@ class BaseAutoEncoder(pl.LightningModule):
         self.val_rec_rate = ReconstructionRate()
 
     def forward(self, batch):
-        if self.task == 'reconstruct':
+        if self.task == "reconstruct":
             return self.reconstruct(batch)
-        elif self.task == 'encode':
+        elif self.task == "encode":
             return self.encode(batch)
-        elif self.task == 'decode':
+        elif self.task == "decode":
             return self.decode(batch)
 
     def reconstruct(self, batch):
@@ -53,61 +64,75 @@ class BaseAutoEncoder(pl.LightningModule):
         raise NotImplementedError
 
     def training_step(self, batch, batch_idx):
-        metrics = self._get_loss(batch, 'train', batch_idx)
+        metrics = self._get_loss(batch, "train", batch_idx)
         for name, value in metrics.items():
-            self.log('train_' + name, value, prog_bar=True, on_step=True, on_epoch=True, batch_size=self.batch_size)
-        return metrics['loss']
+            self.log(
+                "train_" + name,
+                value,
+                prog_bar=True,
+                on_step=True,
+                on_epoch=True,
+                batch_size=self.batch_size,
+            )
+        return metrics["loss"]
 
     def validation_step(self, batch, batch_idx):
-        metrics = self._get_loss(batch, 'val', batch_idx)
+        metrics = self._get_loss(batch, "val", batch_idx)
         for name, value in metrics.items():
-            self.log('val_' + name, value, on_epoch=True, batch_size=self.batch_size)
+            self.log("val_" + name, value, on_epoch=True, batch_size=self.batch_size)
 
     def test_step(self, batch, batch_idx):
-        metrics = self._get_loss(batch, 'val', batch_idx)
+        metrics = self._get_loss(batch, "val", batch_idx)
         for name, value in metrics.items():
-            self.log('test_' + name, value, on_epoch=True, batch_size=self.batch_size)
+            self.log("test_" + name, value, on_epoch=True, batch_size=self.batch_size)
 
     def configure_optimizers(self):
-        if self.task != 'tune_decoder':
+        if self.task != "tune_decoder":
             parameters = self.parameters()
         else:
             parameters = self.decoder.parameters()
 
-        optimizer = AdaBelief(parameters, lr=self.lr, eps=1e-16, betas=(0.9, 0.999),
-                              weight_decouple=True, rectify=True, weight_decay=0.01,
-                              print_change_log=False)
+        optimizer = AdaBelief(
+            parameters,
+            lr=self.lr,
+            eps=1e-16,
+            betas=(0.9, 0.999),
+            weight_decouple=True,
+            rectify=True,
+            weight_decay=0.01,
+            print_change_log=False,
+        )
 
-        lr_scheduler = ReduceLROnPlateau(optimizer, patience=5, factor=0.8, min_lr=5e-5, verbose=True)
+        lr_scheduler = ReduceLROnPlateau(optimizer, patience=5, factor=0.8, min_lr=5e-5)
         scheduler = {
-            'scheduler': lr_scheduler,
-            'reduce_on_plateau': True,
-            'monitor': 'val_loss'
+            "scheduler": lr_scheduler,
+            "reduce_on_plateau": True,
+            "monitor": "val_loss",
         }
         return [optimizer], [scheduler]
 
 
 class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
     def __init__(
-            self,
-            max_atoms: int,
-            batch_size: int,
-            num_conv_layers: int,
-            vector_dim: int,
-            num_mha_layers: int,
-            num_agg_layers: int,
-            num_heads_encoder: int,
-            num_heads_decoder: int,
-            dropout: float,
-            vq_embeddings: int = 4096,
-            bias: bool = True,
-            init_values=1e-4,
-            lr: float = 2e-4,
-            task: str = 'train',
-            shuffle_graph: bool = False,
-            positional_bias: bool = False,
-            reparam: bool = False,
-            class_categories: list = None
+        self,
+        max_atoms: int,
+        batch_size: int,
+        num_conv_layers: int,
+        vector_dim: int,
+        num_mha_layers: int,
+        num_agg_layers: int,
+        num_heads_encoder: int,
+        num_heads_decoder: int,
+        dropout: float,
+        vq_embeddings: int = 4096,
+        bias: bool = True,
+        init_values=1e-4,
+        lr: float = 2e-4,
+        task: str = "train",
+        shuffle_graph: bool = False,
+        positional_bias: bool = False,
+        reparam: bool = False,
+        class_categories: list | None = None,
     ):
         """
         Initializes the VQGAE model.
@@ -131,7 +156,7 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         :param reparam: (bool) Whether to use the reparameterization trick on feauture vector
         :param class_categories: (list) List of number of categories for the multi-target classification task
         """
-        super(VQGAE, self).__init__()
+        super().__init__()
         self.save_hyperparameters()
 
         self.max_atoms = max_atoms
@@ -141,14 +166,36 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         self.shuffle_graph = shuffle_graph
         self.reparam = reparam
 
-        self.encoder = VQEncoder(max_atoms, vector_dim, batch_size, num_heads_encoder, num_conv_layers,
-                                 num_agg_layers, bias, dropout, init_values, class_aggregation=True)
-        self.vq = VectorQuantizer(num_embeddings=vq_embeddings, embedding_dim=vector_dim)
-        self.decoder = VQDecoder(max_atoms, vector_dim, num_heads_decoder, num_mha_layers, bias,
-                                 dropout, init_values, positional_bias=positional_bias)
+        self.encoder = VQEncoder(
+            max_atoms,
+            vector_dim,
+            batch_size,
+            num_heads_encoder,
+            num_conv_layers,
+            num_agg_layers,
+            bias,
+            dropout,
+            init_values,
+            class_aggregation=True,
+        )
+        self.vq = VectorQuantizer(
+            num_embeddings=vq_embeddings, embedding_dim=vector_dim
+        )
+        self.decoder = VQDecoder(
+            max_atoms,
+            vector_dim,
+            num_heads_decoder,
+            num_mha_layers,
+            bias,
+            dropout,
+            init_values,
+            positional_bias=positional_bias,
+        )
         if class_categories:
             self.num_categories = len(class_categories)
-            self.property_classifier = MultiTargetClassifier(vector_dim, class_categories)
+            self.property_classifier = MultiTargetClassifier(
+                vector_dim, class_categories
+            )
 
         if self.reparam:
             self.mu_lin = Linear(vector_dim, vector_dim)
@@ -167,8 +214,12 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         return p_atoms, p_bonds
 
     def encode(self, mol_graph):
-        _, atoms_mask = to_dense_batch(mol_graph.atoms_types.long(), mol_graph.batch,
-                                       max_num_nodes=self.max_atoms, batch_size=self.batch_size)
+        _, atoms_mask = to_dense_batch(
+            mol_graph.atoms_types.long(),
+            mol_graph.batch,
+            max_num_nodes=self.max_atoms,
+            batch_size=self.batch_size,
+        )
         mol_sizes = torch.sum(atoms_mask, dim=-1)
         atoms_vectors, feature_vector, _ = self.encoder(mol_graph, mol_sizes)
         batch, num_atoms, vec_dim = atoms_vectors.shape
@@ -188,6 +239,26 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
         codebook_vectors = self.vq.embed_code(indices)
         codebook_vectors *= torch.unsqueeze(mask, -1)
         p_atoms, p_bonds = self.decoder(codebook_vectors)
+        atoms = torch.argmax(p_atoms, -1)
+        bonds = torch.argmax(p_bonds, -3)
+        return atoms, bonds, sizes
+
+    def decode_from_atoms_vectors(self, atoms_vectors, sizes):
+        """Decode directly from continuous atom-level latents (skip the codebook).
+
+        :param atoms_vectors: (B, max_atoms, vector_dim) continuous tensor.
+            Typically obtained from `VQGAE.encode(...)[0]` (post-VQ atom
+            vectors), but any tensor of the right shape works — this is the
+            entry point for continuous-latent search (BO over atom embeddings,
+            gradient-based optimisation, RL with continuous actions, ...).
+        :param sizes: (B,) int tensor of per-molecule heavy-atom counts. Used
+            by `create_chem_graph` downstream; the decoder forward pass itself
+            is permutation-invariant up to padding.
+        :return: tuple `(atoms, bonds, sizes)` matching `decode(...)`'s shape
+            contract; pair with `VQGAE.utils.create_chem_graph` /
+            `decode_molecules` to get back `MoleculeContainer` objects.
+        """
+        p_atoms, p_bonds = self.decoder(atoms_vectors)
         atoms = torch.argmax(p_atoms, -1)
         bonds = torch.argmax(p_bonds, -3)
         return atoms, bonds, sizes
@@ -225,11 +296,19 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
 
         # preparation of masks and true vectors
         mol_graph = batch
-        t_atoms, atoms_mask = to_dense_batch(mol_graph.atoms_types.long(), mol_graph.batch,
-                                             max_num_nodes=self.max_atoms, batch_size=self.batch_size)
+        t_atoms, atoms_mask = to_dense_batch(
+            mol_graph.atoms_types.long(),
+            mol_graph.batch,
+            max_num_nodes=self.max_atoms,
+            batch_size=self.batch_size,
+        )
 
-        t_bonds = to_dense_adj(mol_graph.edge_index.long(), mol_graph.batch,
-                               mol_graph.edge_attr.long(), max_num_nodes=self.max_atoms)
+        t_bonds = to_dense_adj(
+            mol_graph.edge_index.long(),
+            mol_graph.batch,
+            mol_graph.edge_attr.long(),
+            max_num_nodes=self.max_atoms,
+        )
 
         atoms_mask = atoms_mask.long()
         adjs_mask = bonds_masking(atoms_mask)
@@ -244,7 +323,9 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
 
         # shuffle order of atoms before the decoding
         if self.shuffle_graph:
-            t_atoms, t_bonds, atoms_vectors = _shuffle_graph(mol_sizes, t_atoms, t_bonds, atoms_vectors)
+            t_atoms, t_bonds, atoms_vectors = _shuffle_graph(
+                mol_sizes, t_atoms, t_bonds, atoms_vectors
+            )
 
         # decoding
         p_atoms, p_bonds = self.decoder(atoms_vectors)
@@ -255,63 +336,106 @@ class VQGAE(BaseAutoEncoder, pl.LightningModule, ABC):
 
         if self.reparam:
             mu, log_var, latents = self.reparameterize(latents)
-            kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0)
+            kld_loss = torch.mean(
+                -0.5 * torch.sum(1 + log_var - mu**2 - log_var.exp(), dim=1), dim=0
+            )
 
         # property loss computation
         property_loss = torch.zeros_like(atoms_loss, device=atoms_loss.device)
         class_properties = self.property_classifier(latents)
         true_properties = mol_graph.class_prop.view(-1, self.num_categories).long()
         for n, pred_prop in enumerate(class_properties):
-            class_loss = cross_entropy(pred_prop, true_properties[:, n] + 1, reduction='none')
+            class_loss = cross_entropy(
+                pred_prop, true_properties[:, n] + 1, reduction="none"
+            )
             property_loss += class_loss
 
         # full loss computation
-        loss = atoms_loss + bonds_loss + torch.tensor(0.05, device=property_loss.device) * property_loss
+        loss = (
+            atoms_loss
+            + bonds_loss
+            + torch.tensor(0.05, device=property_loss.device) * property_loss
+        )
         loss = torch.mean(loss) + torch.tensor(0.5, device=vq_loss.device) * vq_loss
 
         if self.reparam:
             loss = loss + torch.tensor(0.01, device=kld_loss.device) * kld_loss
 
-        if step == 'train':
+        if step == "train":
             bonds_error = self.train_bonds_error(p_bonds, t_bonds, adjs_mask)
-            rec_rate = self.train_rec_rate((p_atoms, p_bonds,),
-                                           (t_atoms, t_bonds,),
-                                           (atoms_mask, adjs_mask,))
-        elif step == 'val':
+            rec_rate = self.train_rec_rate(
+                (
+                    p_atoms,
+                    p_bonds,
+                ),
+                (
+                    t_atoms,
+                    t_bonds,
+                ),
+                (
+                    atoms_mask,
+                    adjs_mask,
+                ),
+            )
+        elif step == "val":
             bonds_error = self.val_bonds_error(p_bonds, t_bonds, adjs_mask)
-            rec_rate = self.val_rec_rate((p_atoms, p_bonds,),
-                                         (t_atoms, t_bonds,),
-                                         (atoms_mask, adjs_mask,))
+            rec_rate = self.val_rec_rate(
+                (
+                    p_atoms,
+                    p_bonds,
+                ),
+                (
+                    t_atoms,
+                    t_bonds,
+                ),
+                (
+                    atoms_mask,
+                    adjs_mask,
+                ),
+            )
 
-        metrics = {'loss': loss, 'atoms_loss': torch.mean(atoms_loss),
-                   'bonds_loss': torch.mean(bonds_loss), 'vq_loss': torch.mean(vq_loss),
-                   'property_loss': torch.mean(property_loss),
-                   'rec_rate': rec_rate, 'bonds_error': bonds_error}
+        metrics = {
+            "loss": loss,
+            "atoms_loss": torch.mean(atoms_loss),
+            "bonds_loss": torch.mean(bonds_loss),
+            "vq_loss": torch.mean(vq_loss),
+            "property_loss": torch.mean(property_loss),
+            "rec_rate": rec_rate,
+            "bonds_error": bonds_error,
+        }
 
         if self.reparam:
-            metrics['kld_loss'] = kld_loss
+            metrics["kld_loss"] = kld_loss
 
         return metrics
 
 
 class OrderingNetwork(pl.LightningModule):
     def __init__(
-            self,
-            max_atoms,
-            batch_size,
-            vq_embeddings: int,
-            embedding_dim: int = 128,
-            num_heads=8,
-            num_mha_layers=4,
-            init_values=0.001,
-            dropout=0.2,
-            lr=0.001
+        self,
+        max_atoms,
+        batch_size,
+        vq_embeddings: int,
+        embedding_dim: int = 128,
+        num_heads=8,
+        num_mha_layers=4,
+        init_values=0.001,
+        dropout=0.2,
+        lr=0.001,
     ):
-        super(OrderingNetwork, self).__init__()
+        super().__init__()
         self.max_atoms = max_atoms
         self.save_hyperparameters()
         self.batch_size = batch_size
-        self.predictor = ONN(max_atoms, vq_embeddings, embedding_dim, num_heads, num_mha_layers, init_values, dropout)
+        self.predictor = ONN(
+            max_atoms,
+            vq_embeddings,
+            embedding_dim,
+            num_heads,
+            num_mha_layers,
+            init_values,
+            dropout,
+        )
         self.lr = lr
 
     def forward(self, batch):
@@ -339,7 +463,10 @@ class OrderingNetwork(pl.LightningModule):
         # classifiaction metrics calculation
         true_one_hot = true_one_hot.long()
         f1 = binary_f1_score(pred_sort, true_one_hot)
-        ba = (binary_recall(pred_sort, true_one_hot) + binary_specificity(pred_sort, true_one_hot)) / 2
+        ba = (
+            binary_recall(pred_sort, true_one_hot)
+            + binary_specificity(pred_sort, true_one_hot)
+        ) / 2
         acc = binary_accuracy(pred_sort, true_one_hot)
 
         # reconstruction rate calculation
@@ -350,35 +477,51 @@ class OrderingNetwork(pl.LightningModule):
         error = torch.sum(pred_chosen != true_sort, dim=-1)
         rec_rate = torch.mean(torch.where(error != 0, 0.0, 1.0))
 
-        metrics = {'loss': loss, 'f1': f1, "ba": ba, "acc": acc, "rec_rate": rec_rate}
+        metrics = {"loss": loss, "f1": f1, "ba": ba, "acc": acc, "rec_rate": rec_rate}
         return metrics
 
     def training_step(self, batch, batch_idx):
         metrics = self._get_loss(batch)
         for name, value in metrics.items():
-            self.log('train_' + name, value, prog_bar=True, on_step=True, on_epoch=True, batch_size=self.batch_size)
-        return metrics['loss']
+            self.log(
+                "train_" + name,
+                value,
+                prog_bar=True,
+                on_step=True,
+                on_epoch=True,
+                batch_size=self.batch_size,
+            )
+        return metrics["loss"]
 
     def validation_step(self, batch, batch_idx):
         metrics = self._get_loss(batch)
         for name, value in metrics.items():
-            self.log('val_' + name, value, on_epoch=True, batch_size=self.batch_size)
+            self.log("val_" + name, value, on_epoch=True, batch_size=self.batch_size)
 
     def test_step(self, batch, batch_idx):
         metrics = self._get_loss(batch)
         for name, value in metrics.items():
-            self.log('test_' + name, value, on_epoch=True, batch_size=self.batch_size)
+            self.log("test_" + name, value, on_epoch=True, batch_size=self.batch_size)
 
     def configure_optimizers(self):
-        optimizer = AdaBelief(self.parameters(), lr=self.lr, eps=1e-16, betas=(0.9, 0.999),
-                              weight_decouple=True, rectify=True, weight_decay=0.01,
-                              print_change_log=False)
+        optimizer = AdaBelief(
+            self.parameters(),
+            lr=self.lr,
+            eps=1e-16,
+            betas=(0.9, 0.999),
+            weight_decouple=True,
+            rectify=True,
+            weight_decay=0.01,
+            print_change_log=False,
+        )
 
-        lr_scheduler = ReduceLROnPlateau(optimizer, patience=10, factor=0.8, min_lr=5e-5, verbose=True)
+        lr_scheduler = ReduceLROnPlateau(
+            optimizer, patience=10, factor=0.8, min_lr=5e-5
+        )
         scheduler = {
-            'scheduler': lr_scheduler,
-            'reduce_on_plateau': True,
-            'monitor': 'val_loss'
+            "scheduler": lr_scheduler,
+            "reduce_on_plateau": True,
+            "monitor": "val_loss",
         }
         return [optimizer], [scheduler]
 
@@ -401,7 +544,9 @@ def _permute_adj_matrix(indices, adjs, max_atoms):
 
 def _shuffle_graph(sizes, atoms, adjs, atoms_vectors):
     batch, max_atoms, dim = atoms_vectors.shape
-    permuted_indices = _create_random_permutations(sizes, batch, max_atoms, atoms.device)
+    permuted_indices = _create_random_permutations(
+        sizes, batch, max_atoms, atoms.device
+    )
     shuffled_atoms = torch.gather(atoms, 1, permuted_indices)
     shuffled_adjs = _permute_adj_matrix(permuted_indices, adjs, max_atoms)
 
