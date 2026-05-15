@@ -10,6 +10,16 @@ from chython.periodictable import AnyElement, ListElement
 from chython.periodictable import O as O_elem
 from scipy.optimize import linear_sum_assignment
 
+# --- Architecture-defining constants -------------------------------------- #
+# These match the published `tagirshin/VQGAE` checkpoint. Override at training
+# time by setting `model.max_atoms` / `model.vq_embeddings` in the YAML config;
+# inference helpers (`decode_population`, `vqgae_encode_dataset`, etc.) prefer
+# the value carried on the model instance over these defaults so a model
+# trained with different sizes works without per-call configuration.
+DEFAULT_MAX_ATOMS: int = 51
+DEFAULT_NUM_FRAGS: int = 4096
+
+
 accepted_atoms = ("C", "N", "S", "O", "Se", "F", "Cl", "Br", "I", "B", "P", "Si")
 
 atoms_types = (
@@ -271,7 +281,7 @@ def tanimoto_kernel(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return result
 
 
-def frag_inds_to_counts(raw_vectors, num_frags=4096):
+def frag_inds_to_counts(raw_vectors, num_frags: int = DEFAULT_NUM_FRAGS):
     counts_vec = np.zeros((raw_vectors.shape[0], num_frags), dtype=np.uint8)
     for i in range(raw_vectors.shape[0]):
         for j in range(raw_vectors.shape[1]):
@@ -283,7 +293,7 @@ def frag_inds_to_counts(raw_vectors, num_frags=4096):
     return counts_vec
 
 
-def frag_counts_to_inds(frag_counts: np.ndarray, max_atoms=51):
+def frag_counts_to_inds(frag_counts: np.ndarray, max_atoms: int = DEFAULT_MAX_ATOMS):
     frag_inds = -1 * torch.ones((frag_counts.shape[0], max_atoms), dtype=torch.int64)
     for mol_id in range(frag_counts.shape[0]):
         atom_counter = 0
@@ -475,3 +485,31 @@ def decode_molecules(ordered_frag_inds, vqgae_model, clean_2d=True):
         decoded_molecules.append(molecule)
         validity.append(valid)
     return decoded_molecules, validity
+
+
+def decoded_mol(atoms, bonds, size: int, canonicalize: bool = False):
+    """chython MoleculeContainer from a decoded (atoms, bonds, size) triple,
+    or None if invalid (disconnected, bad valence, unaromatisable).
+
+    chython's ``MoleculeContainer.__eq__`` resolves to ``str(self) == str(other)``,
+    so equality across atom orderings (Stage 2 / full reconstruction, where the
+    ONN may reshuffle slots relative to GT) needs ``canonicalize=True``. Stage 1
+    keeps GT ordering by construction, so canonicalisation is unnecessary there.
+    """
+    if size < 1:
+        return None
+    mol = create_chem_graph(atoms, bonds, int(size))
+    if len(mol) < 2 or mol.connected_components_count != 1:
+        return None
+    if mol.check_valence():
+        return None
+    try:
+        mol.thiele()
+    except InvalidAromaticRing:
+        return None
+    if canonicalize:
+        try:
+            mol.canonicalize()
+        except Exception:
+            return None
+    return mol

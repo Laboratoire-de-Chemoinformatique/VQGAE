@@ -1156,6 +1156,37 @@ wheels = [
 ]
 
 [[package]]
+name = "datamol"
+version = "0.12.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fsspec" },
+    { name = "importlib-resources" },
+    { name = "joblib" },
+    { name = "loguru" },
+    { name = "matplotlib" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "packaging" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (python_full_version >= '3.12' and python_full_version < '3.14') or (python_full_version == '3.11.*' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (python_full_version == '3.11.*' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (python_full_version == '3.11.*' and extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128') or (python_full_version >= '3.14' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (python_full_version >= '3.14' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (python_full_version >= '3.14' and extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or python_full_version >= '3.14' or (python_full_version < '3.11' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (python_full_version < '3.11' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (python_full_version < '3.11' and extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128') or (python_full_version >= '3.12' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (python_full_version >= '3.12' and extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (python_full_version >= '3.12' and extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "pillow" },
+    { name = "platformdirs" },
+    { name = "rdkit" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "selfies" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/87/5e0eeea2f1bf4de215de2d74af78f041de1936214de9009d46e4ff7503cf/datamol-0.12.5.tar.gz", hash = "sha256:8f0c6f498d542b0c9182f685ba46860f0628ac4c0caa3b195923150641bdcc57", size = 3898590, upload-time = "2024-06-10T16:09:29.679Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d4/e7/3df58df1af04dcc694a6c970e7138ba3ec3447a442deb427914438326107/datamol-0.12.5-py3-none-any.whl", hash = "sha256:70a3c60ac3379d853611e266051ea38aad02bb44611d56cc7e8a470f904d704d", size = 495391, upload-time = "2024-06-10T16:09:25.931Z" },
+]
+
+[[package]]
 name = "deap"
 version = "1.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2385,6 +2416,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f1/45/7fa8f56b17dc0f0a41ec70dd307ecd6787254483549843bef4c30ab5adce/lightning_utilities-0.15.3.tar.gz", hash = "sha256:792ae0204c79f6859721ac7f386c237a33b0ed06ba775009cb894e010a842033", size = 33553, upload-time = "2026-02-22T14:48:53.348Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/25/f4/ead6e0e37209b07c9baa3e984ccdb0348ca370b77cea3aaea8ddbb097e00/lightning_utilities-0.15.3-py3-none-any.whl", hash = "sha256:6c55f1bee70084a1cbeaa41ada96e4b3a0fea5909e844dd335bd80f5a73c5f91", size = 31906, upload-time = "2026-02-22T14:48:52.488Z" },
+]
+
+[[package]]
+name = "loguru"
+version = "0.7.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "win32-setctime", marker = "sys_platform == 'win32' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
 ]
 
 [[package]]
@@ -5509,6 +5553,15 @@ wheels = [
 ]
 
 [[package]]
+name = "selfies"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/de/466e2a24293929836690768eeda15ed2465e4527df05f569a0cddd2bf761/selfies-2.2.0.tar.gz", hash = "sha256:68dc2a0d8ef507fc01919c4490d6b712c5e5edab8fb6b85c38223d55ac0c65e2", size = 42263, upload-time = "2025-01-15T21:29:47.621Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/28/e55116335f778c734b1211d3abacd429599a2f0f664d267eb1282f9906a2/selfies-2.2.0-py3-none-any.whl", hash = "sha256:8b80796832c0b2f33e63d4fa1617ca541338c57b463a4d06cda3da510506ff73", size = 36021, upload-time = "2025-01-15T21:29:45.226Z" },
+]
+
+[[package]]
 name = "send2trash"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -6093,6 +6146,23 @@ wheels = [
 ]
 
 [[package]]
+name = "torchdata"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-5-vqgae-cpu') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128') or (extra != 'extra-5-vqgae-cpu' and extra != 'extra-5-vqgae-cu126' and extra != 'extra-5-vqgae-cu128')" },
+    { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-5-vqgae-cpu') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128') or (extra == 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "torch", version = "2.11.0+cu126", source = { registry = "https://download.pytorch.org/whl/cu126" }, marker = "extra == 'extra-5-vqgae-cu126' or (extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(extra == 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu126') or (extra != 'extra-5-vqgae-cu126' and extra == 'extra-5-vqgae-cu128') or (extra != 'extra-5-vqgae-cpu' and extra == 'extra-5-vqgae-cu128')" },
+    { name = "urllib3" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/d4/af694ef718aedbe95a72760ab9ff7a6a7a44ace2d7f70c27bfeb67c5c503/torchdata-0.11.0-py3-none-any.whl", hash = "sha256:52b940fbbe0e00fb21cabddf528449d1bec5bfb0d0823b7487b15f951658ee33", size = 61968, upload-time = "2025-02-20T22:26:30.666Z" },
+]
+
+[[package]]
 name = "torchmetrics"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -6332,6 +6402,10 @@ notebooks = [
 scaffold = [
     { name = "deap" },
 ]
+scaling = [
+    { name = "datamol" },
+    { name = "torchdata" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -6345,6 +6419,7 @@ requires-dist = [
     { name = "cachedmethods", specifier = "<0.2" },
     { name = "chython-synplan", extras = ["racer-default"], specifier = ">=1.93" },
     { name = "click", specifier = ">=8.1" },
+    { name = "datamol", marker = "extra == 'scaling'", specifier = ">=0.12" },
     { name = "deap", marker = "extra == 'scaffold'", specifier = ">=1.4" },
     { name = "huggingface-hub", specifier = ">=0.20" },
     { name = "ipykernel", marker = "extra == 'notebooks'" },
@@ -6369,11 +6444,12 @@ requires-dist = [
     { name = "torch", marker = "extra == 'cu126'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "vqgae", extra = "cu126" } },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "vqgae", extra = "cu128" } },
     { name = "torch-geometric", specifier = ">=2.4" },
+    { name = "torchdata", marker = "extra == 'scaling'", specifier = ">=0.10" },
     { name = "torchmetrics", specifier = ">=0.11" },
     { name = "tqdm", specifier = ">=4.64" },
     { name = "vqgae", extras = ["ga", "bo", "notebooks", "filters", "scaffold"], marker = "extra == 'examples'" },
 ]
-provides-extras = ["cpu", "cu126", "cu128", "ga", "bo", "notebooks", "app", "filters", "scaffold", "examples"]
+provides-extras = ["cpu", "cu126", "cu128", "ga", "bo", "notebooks", "app", "filters", "scaffold", "scaling", "examples"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -6524,6 +6600,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bd/f4/c67440c7fb409a71b7404b7aefcd7569a9c0d6bd071299bf4198ae7a5d95/widgetsnbextension-4.0.15.tar.gz", hash = "sha256:de8610639996f1567952d763a5a41af8af37f2575a41f9852a38f947eb82a3b9", size = 1097402, upload-time = "2025-11-01T21:15:55.178Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/0e/fa3b193432cfc60c93b42f3be03365f5f909d2b3ea410295cf36df739e31/widgetsnbextension-4.0.15-py3-none-any.whl", hash = "sha256:8156704e4346a571d9ce73b84bee86a29906c9abfd7223b7228a28899ccf3366", size = 2196503, upload-time = "2025-11-01T21:15:53.565Z" },
+]
+
+[[package]]
+name = "win32-setctime"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]

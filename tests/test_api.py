@@ -258,3 +258,116 @@ def test_smiles_to_mol_unparseable_raises_value_error():
 
     with pytest.raises(ValueError, match="could not parse SMILES"):
         smiles_to_mol("ZZZZZ()(()(((((")
+
+
+# ---------------------------------------------------------------------------
+# 7. Sharded preprocessing pipeline (rdkit + datamol + safetensors)
+# ---------------------------------------------------------------------------
+
+
+SDF_FIXTURE = DATA_DIR / "colchicine_scaffold.sdf"
+
+
+@pytest.mark.skipif(not SDF_FIXTURE.exists(), reason="colchicine SDF fixture missing")
+def test_preprocess_to_shards_sdf_round_trip(tmp_path):
+    """End-to-end: SDF -> shards -> ShardedVQGAEDataset yields correct count + shape."""
+    from VQGAE.preprocessing import ShardedVQGAEDataset, preprocess_to_shards
+
+    summary = preprocess_to_shards(
+        SDF_FIXTURE,
+        tmp_path,
+        shard_size=50,
+        max_atoms=51,
+        n_jobs=2,
+        props_mode="rdkit",
+        chunk_size=50,
+    )
+    assert summary["n_kept"] == summary["total_molecules"]
+    assert summary["n_skipped"] == 0
+    assert summary["n_shards"] >= 1
+    assert (tmp_path / "index.json").exists()
+
+    ds = ShardedVQGAEDataset(tmp_path, shuffle=False)
+    assert len(ds) == summary["total_molecules"]
+    n = 0
+    first = None
+    for data in ds:
+        if first is None:
+            first = data
+        n += 1
+    assert n == len(ds)
+    # Per-molecule tensors are unpadded on read (so PyG `Batch.from_data_list`
+    # produces correctly-sized node-level batches): mol_size rows, not max_atoms.
+    assert first.x.shape[0] == int(first.mol_size)
+    assert first.x.shape[1] == 11
+    assert first.atoms_types.shape == (int(first.mol_size),)
+    assert first.edge_index.shape[0] == 2
+    assert first.edge_attr.shape[0] == first.edge_index.shape[1]
+    # rdkit-computed class_prop has 8 entries clipped to DEFAULT_PROP_BINS
+    assert tuple(first.class_prop.shape) == (8,)
+
+
+@pytest.mark.skipif(not SDF_FIXTURE.exists(), reason="colchicine SDF fixture missing")
+def test_preprocess_to_shards_smi_path(tmp_path):
+    """SMILES file (.smi) goes through the same pipeline."""
+    from chython.files import SDFRead
+
+    from VQGAE.preprocessing import ShardedVQGAEDataset, preprocess_to_shards
+
+    smi_path = tmp_path / "test.smi"
+    with SDFRead(str(SDF_FIXTURE)) as inp, open(smi_path, "w") as out:
+        for i, mol in enumerate(inp):
+            if i >= 8:
+                break
+            out.write(str(mol) + "\n")
+
+    out_dir = tmp_path / "shards"
+    summary = preprocess_to_shards(
+        smi_path,
+        out_dir,
+        shard_size=20,
+        n_jobs=1,
+        props_mode="rdkit",
+        chunk_size=20,
+    )
+    assert summary["n_kept"] >= 5  # some may be filtered for various reasons
+    ds = ShardedVQGAEDataset(out_dir, shuffle=False)
+    assert len(ds) == summary["total_molecules"]
+
+
+def test_iter_smiles_smi_format(tmp_path):
+    """iter_smiles handles whitespace-delimited .smi with optional ID column."""
+    from VQGAE.preprocessing import iter_smiles
+
+    p = tmp_path / "x.smi"
+    p.write_text(
+        "CCO ethanol\n"
+        "c1ccccc1 benzene\n"
+        "# this is a comment, skip me\n"
+        "\n"  # blank line, also skipped
+        "CC(=O)O acetic_acid\n"
+    )
+    rows = list(iter_smiles(p))
+    assert rows == [
+        ("CCO", "ethanol"),
+        ("c1ccccc1", "benzene"),
+        ("CC(=O)O", "acetic_acid"),
+    ]
+
+
+def test_compute_rdkit_props_shape_and_clip():
+    """compute_rdkit_props returns 8 ints; clip_props_to_bins enforces ranges."""
+    from rdkit import Chem
+
+    from VQGAE.preprocessing import (
+        DEFAULT_PROP_BINS,
+        clip_props_to_bins,
+        compute_rdkit_props,
+    )
+
+    mol = Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O")  # aspirin
+    props = compute_rdkit_props(mol)
+    assert len(props) == 8
+    clipped = clip_props_to_bins(props)
+    for value, max_bin in zip(clipped, DEFAULT_PROP_BINS):
+        assert 0 <= value < max_bin

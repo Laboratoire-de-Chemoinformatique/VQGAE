@@ -34,3 +34,8 @@ ordering_network_model_checkpoint:
   filename: ${trainer.logger.init_args.name}
   monitor: val_rec_rate
   mode: max
+stage2_rec_check:
+  # Path to the VQGAE checkpoint used to generate the ONN dataset. Must match,
+  # otherwise codebook semantics differ and the comparison is meaningless.
+  vqgae_ckpt: ./weights/vqgae.ckpt
+  n_samples: 5000

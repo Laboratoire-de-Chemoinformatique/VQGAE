@@ -6,7 +6,13 @@ from torch_geometric.loader.dataloader import DataLoader as PYGDataLoader
 from tqdm import tqdm
 
 from VQGAE.preprocessing import MolDataset, preprocess_molecule
-from VQGAE.utils import create_chem_graph, filter_molecule, find_best_permutation
+from VQGAE.utils import (
+    DEFAULT_MAX_ATOMS,
+    DEFAULT_NUM_FRAGS,
+    create_chem_graph,
+    filter_molecule,
+    find_best_permutation,
+)
 from VQGAE.utils import (
     decode_molecules as _decode_molecules_torch,
 )
@@ -22,7 +28,30 @@ from VQGAE.utils import (
 )
 
 
-def vqgae_encode_dataset(data_file, vqgae_model, batch_size=10, max_atoms=51):
+def _model_max_atoms(model, fallback: int = DEFAULT_MAX_ATOMS) -> int:
+    """Read ``max_atoms`` from a Lightning module if available; else fallback.
+
+    Lets the inference helpers stay correct when a user trains the model with
+    a non-default ``max_atoms`` and then calls e.g. ``decode_population``
+    without re-passing the same value.
+    """
+    return int(getattr(model, "max_atoms", fallback))
+
+
+def vqgae_encode_dataset(
+    data_file,
+    vqgae_model,
+    batch_size: int = 10,
+    max_atoms: int | None = None,
+):
+    """Encode every molecule in an SDF, returning per-mol codebook indices.
+
+    :param max_atoms: graph size cap; if None, derived from
+        ``vqgae_model.max_atoms`` (so the value matches what the model was
+        trained with). Pass an explicit int to override.
+    """
+    if max_atoms is None:
+        max_atoms = _model_max_atoms(vqgae_model)
     data = MolDataset(max_atoms=max_atoms, molecules_file=data_file)
     loader = PYGDataLoader(data, batch_size=batch_size)
     results = []
@@ -64,7 +93,7 @@ def decode_population(
     vqgae_decoder,
     ordering_model,
     batch_size: int = 100,
-    max_atoms: int = 51,
+    max_atoms: int | None = None,
     clean_2d: bool = False,
 ):
     """Decode a population of fragment-count vectors back to molecules.
@@ -78,13 +107,17 @@ def decode_population(
     :param vqgae_decoder: VQGAE loaded with task='decode'.
     :param ordering_model: OrderingNetwork (used to pick a canonical permutation).
     :param batch_size: forward-pass batch size for decoding.
-    :param max_atoms: must match the model's max_atoms (51 for the published checkpoint).
+    :param max_atoms: graph size cap; if None, derived from
+        ``vqgae_decoder.max_atoms`` so the value matches the model's
+        training-time configuration. Pass an int to override.
     :param clean_2d: if True, run molecule.clean2d() during validity check.
     :return: tuple (molecules, validity, ordering_scores).
         - molecules: list[chython.MoleculeContainer]
         - validity: list[bool], True iff the decoded molecule passes filter_molecule
         - ordering_scores: list[float], mean per-atom permutation confidence
     """
+    if max_atoms is None:
+        max_atoms = _model_max_atoms(vqgae_decoder)
     counts = np.asarray(counts)
     if counts.ndim == 1:
         counts = counts[None, :]
@@ -130,7 +163,7 @@ def vqgae_encode_mols(molecules: list, vqgae_model, batch_size=10):
     return results
 
 
-def frag_inds_to_counts(raw_vectors, num_frags=4096):
+def frag_inds_to_counts(raw_vectors, num_frags: int = DEFAULT_NUM_FRAGS):
     counts_vec = np.zeros((raw_vectors.shape[0], num_frags), dtype=np.uint8)
 
     for i in range(raw_vectors.shape[0]):
@@ -142,7 +175,7 @@ def frag_inds_to_counts(raw_vectors, num_frags=4096):
     return counts_vec
 
 
-def frag_counts_to_inds(frag_counts: np.ndarray, max_atoms=51):
+def frag_counts_to_inds(frag_counts: np.ndarray, max_atoms: int = DEFAULT_MAX_ATOMS):
     num_molecules, num_frags = frag_counts.shape
     frag_inds = -1 * np.ones((num_molecules, max_atoms), dtype=np.int64)
 

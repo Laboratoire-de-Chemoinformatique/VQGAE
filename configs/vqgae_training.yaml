@@ -56,3 +56,6 @@ vqgae_model_checkpoint:
   filename: ${trainer.logger.init_args.name}
   monitor: train_loss
   mode: min
+stage1_rec_check:
+  n_samples: 5000
+

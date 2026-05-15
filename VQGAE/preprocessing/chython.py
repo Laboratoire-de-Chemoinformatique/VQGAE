@@ -18,7 +18,7 @@ from torch_geometric.loader.dataloader import DataLoader as PYGDataLoader
 from torch_geometric.transforms import ToUndirected
 from tqdm import tqdm
 
-from .utils import accepted_atoms, atoms_types, morgan
+from ..utils import accepted_atoms, atoms_types, morgan
 
 
 def calc_atoms_info() -> dict:

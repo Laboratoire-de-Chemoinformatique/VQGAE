@@ -37,3 +37,7 @@ venv/
 notebooks/*_executed.ipynb
 notebooks/tubulin_chosen_generated.sdf
 notebooks/colchicine_scaffold_generated.smi
+
+# Local-only spec/agent scaffolding (private to this repo).
+/openspec/
+/.claude/

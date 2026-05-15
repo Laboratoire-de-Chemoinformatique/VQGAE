@@ -21,6 +21,8 @@ from .inference import (
 )
 from .models import VQGAE, OrderingNetwork
 from .utils import (
+    DEFAULT_MAX_ATOMS,
+    DEFAULT_NUM_FRAGS,
     create_chem_graph,
     decode_molecules,
     extract_scaffold,
@@ -33,6 +35,9 @@ from .utils import (
 )
 
 __all__ = [
+    # architecture-defining defaults (override per-model via training config)
+    "DEFAULT_MAX_ATOMS",
+    "DEFAULT_NUM_FRAGS",
     # post-processing — rdkit side (lazy import)
     "SMARTS_ALERTS",
     "VQGAE",
